@@ -1,0 +1,28 @@
+# Environment / credentials
+.env
+.env.*
+
+# Dependencies
+node_modules/
+
+# Uploaded user documents (PII - never push)
+uploads/
+
+# Database config with credentials
+db.js
+src/config/db.js
+
+# SQL migration files (schema exposure)
+src/config/*.sql
+*.sql
+
+# Migration runner
+run_migration.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+build/
