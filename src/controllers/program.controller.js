@@ -1,31 +1,72 @@
 const db = require('../../db');
+const { notifyAllBeneficiaries } = require('../services/notification.services');
+
+// Map program status to a notification type and human-readable label
+const getNotificationMeta = (status) => {
+    switch ((status || '').toLowerCase()) {
+        case 'ongoing':
+        case 'active':
+            return { type: 'program_available', label: 'Now Open for Applications' };
+        case 'pending':
+            return { type: 'program_coming_soon', label: 'Coming Soon' };
+        case 'completed':
+            return { type: 'program_completed', label: 'Completed' };
+        default:
+            return { type: 'general', label: 'New Program' };
+    }
+};
 
 // Create a new program
 exports.createProgram = async (req, res) => {
     try {
-        const { name, location, slots, budget, status } = req.body;
+        const { name, location, slots, budget, status, start_date, end_date } = req.body;
 
         if (!name || !location || !slots || !budget) {
             return res.status(400).json({ message: "All fields are required" });
         }
 
         const query = `
-            INSERT INTO programs (program_name, location, slots, budget, status, filled, used)
-            VALUES (?, ?, ?, ?, ?, 0, 0)
+            INSERT INTO programs (program_name, location, slots, budget, status, start_date, end_date, filled, used)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)
         `;
 
-        const [result] = await db.execute(query, [name, location, slots, budget, status]);
+        const [result] = await db.execute(query, [
+            name, location, slots, budget, status,
+            start_date || null, end_date || null
+        ]);
+
+        const programId = result.insertId;
+
+        // Notify all beneficiaries about the new program
+        try {
+            const { type, label } = getNotificationMeta(status);
+            const dateInfo = start_date
+                ? ` starting ${new Date(start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
+                : '';
+
+            await notifyAllBeneficiaries({
+                title: `${name} — ${label}`,
+                message: `A new program "${name}" in ${location} is ${label.toLowerCase()}${dateInfo}. ${slots} slots available.`,
+                type,
+                program_id: programId,
+            });
+        } catch (notifError) {
+            // Log but don't fail the program creation if notifications fail
+            console.error('Failed to send program notifications:', notifError);
+        }
 
         res.status(201).json({ 
             message: "Program created successfully!", 
-            id: result.insertId,
+            id: programId,
             program: {
-                program_id: result.insertId,
+                program_id: programId,
                 name,
                 location,
                 slots,
                 budget,
                 status,
+                start_date: start_date || null,
+                end_date: end_date || null,
                 filled: 0,
                 used: 0
             }
@@ -39,7 +80,17 @@ exports.createProgram = async (req, res) => {
 // Get all programs
 exports.getAllPrograms = async (req, res) => {
     try {
-        const query = 'SELECT * FROM programs ORDER BY program_id DESC';
+        const query = `
+            SELECT
+                p.*,
+                COUNT(CASE WHEN a.status = 'Approved' THEN 1 END) AS filled
+            FROM programs p
+            LEFT JOIN applications a
+                ON LOWER(p.program_name) LIKE CONCAT(LOWER(a.program_type), '%')
+                AND a.status = 'Approved'
+            GROUP BY p.program_id
+            ORDER BY p.program_id DESC
+        `;
         const [programs] = await db.execute(query);
         res.status(200).json(programs);
     } catch (error) {
@@ -70,15 +121,19 @@ exports.getProgram = async (req, res) => {
 exports.updateProgram = async (req, res) => {
     try {
         const { program_id } = req.params;
-        const { name, location, slots, budget, status } = req.body;
+        const { name, location, slots, budget, status, start_date, end_date } = req.body;
 
         const query = `
             UPDATE programs 
-            SET program_name = ?, location = ?, slots = ?, budget = ?, status = ?
+            SET program_name = ?, location = ?, slots = ?, budget = ?, status = ?, start_date = ?, end_date = ?
             WHERE program_id = ?
         `;
 
-        const [result] = await db.execute(query, [name, location, slots, budget, status, program_id]);
+        const [result] = await db.execute(query, [
+            name, location, slots, budget, status,
+            start_date || null, end_date || null,
+            program_id
+        ]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Program not found" });

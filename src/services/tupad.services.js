@@ -59,15 +59,68 @@ exports.applyTupad = async (data) => {
 };
 
 exports.approveTupadApplication = async (applicationId) => {
-    const [result] = await db.query(
-        `UPDATE applications SET status = 'Approved', approval_date = NOW() WHERE application_id = ?`,
-        [applicationId]
-    );
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
 
-    if (result.affectedRows === 0) {
-        throw new Error('Application not found');
+        // 1. Fetch the application
+        const [appRows] = await connection.execute(
+            `SELECT application_id, user_id, program_type, status
+             FROM applications WHERE application_id = ? AND program_type = 'tupad'`,
+            [applicationId]
+        );
+        if (!appRows.length) {
+            throw new Error('Application not found');
+        }
+        const application = appRows[0];
+        if (application.status === 'Approved') {
+            throw new Error('Application is already approved');
+        }
+
+        // 2. Update application status
+        await connection.execute(
+            `UPDATE applications SET status = 'Approved', approval_date = NOW(), rejection_reason = NULL
+             WHERE application_id = ?`,
+            [applicationId]
+        );
+
+        // 3. Ensure beneficiary is active
+        await connection.execute(
+            `UPDATE beneficiaries SET is_active = 1 WHERE user_id = ?`,
+            [application.user_id]
+        );
+
+        // 4. Increment filled slot on matching TUPAD program
+        await connection.execute(
+            `UPDATE programs
+             SET filled = filled + 1
+             WHERE LOWER(program_name) = 'tupad'
+               AND status IN ('active', 'ongoing')
+               AND filled < slots
+             ORDER BY start_date DESC
+             LIMIT 1`
+        );
+
+        // 5. Send notification
+        await connection.execute(
+            `INSERT INTO notifications (user_id, title, message, type)
+             VALUES (?, ?, ?, ?)`,
+            [
+                application.user_id,
+                'Application Approved',
+                'Your TUPAD application has been approved. You are now enrolled in the program.',
+                'application'
+            ]
+        );
+
+        await connection.commit();
+        return { applicationId, userId: application.user_id };
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
     }
-    return result;
 };
 
 // Get TUPAD details by application ID

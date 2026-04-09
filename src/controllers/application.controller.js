@@ -301,10 +301,21 @@ exports.getApplicationsByStatus = async (req, res) => {
 exports.approveApplication = async (req, res) => {
     try {
         const { id } = req.params;
-        await beneficiaryService.approveApplication(id);
-        res.status(200).json({ message: "Application approved successfully" });
+        const result = await beneficiaryService.approveApplication(id);
+        res.status(200).json({
+            message: "Application approved successfully",
+            applicationId: result.applicationId,
+            userId: result.userId,
+            programType: result.programType
+        });
     } catch (error) {
         console.error("Error approving application:", error.message);
+        if (error.message === 'Application not found') {
+            return res.status(404).json({ message: "Application not found" });
+        }
+        if (error.message === 'Application is already approved') {
+            return res.status(409).json({ message: "Application is already approved" });
+        }
         res.status(500).json({ message: "Error approving application", error: error.message });
     }
 };

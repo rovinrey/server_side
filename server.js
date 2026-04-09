@@ -11,6 +11,7 @@ const authRoutes = require('./src/routes/auth.routes.js');
 const beneficiaryRoutes = require('./src/routes/beneficiary.routes.js');
 const applicationsRoutes = require('./src/routes/application.routes.js');
 const attendanceRoutes = require('./src/routes/attendance.routes.js');
+const notificationRoutes = require('./src/routes/notification.routes.js');
 
 // --- APP SETUP ---
 const app = express();
@@ -51,7 +52,7 @@ const authLimiter = rateLimit({
 // General rate limit for all API routes
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 200,
+    max: 1000,
     standardHeaders: true,
     legacyHeaders: false,
     message: { message: 'Too many requests, please try again later.' },
@@ -63,8 +64,8 @@ app.use('/api/', generalLimiter);
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
-// --- AUTH ROUTES (with stricter rate limit) ---
-app.use('/api/auth', authLimiter, authRoutes);
+// --- AUTH ROUTES (stricter limiter applied per-route inside auth.routes) ---
+app.use('/api/auth', authRoutes);
 
 // --- LOGOUT ROUTE ---
 app.post('/logout', (req, res) => {
@@ -78,6 +79,8 @@ app.use('/api/programs', programRoutes);
 app.use('/api/beneficiaries', beneficiaryRoutes);
 app.use('/api/applications', applicationsRoutes);
 app.use('/api/attendance', attendanceRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/payroll', require('./src/routes/payroll.routes.js'));
 app.use('/api/spes-documents', require('./src/routes/spes.documents.routes.js'));
 app.use('/api/documents', require('./src/routes/documents.routes.js'));
 app.use('/api/admin/documents', require('./src/routes/admin.documents.routes.js'));

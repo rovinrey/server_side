@@ -9,12 +9,12 @@ router.post('/', programController.createProgram);
 router.get('/allPrograms', programController.getAllPrograms);
 
 // Get a single program
-router.get('/:id', programController.getProgram);
+router.get('/:program_id', programController.getProgram);
 
 // Update a program
-router.put('/:id', programController.updateProgram);
+router.put('/:program_id', programController.updateProgram);
 
 // Delete a program
-router.delete('/:id', programController.deleteProgram);
+router.delete('/:program_id', programController.deleteProgram);
 
 module.exports = router;

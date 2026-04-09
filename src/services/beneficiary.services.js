@@ -235,25 +235,142 @@ exports.getApplicationsByStatus = async (status, programType = null) => {
 };
 
 exports.approveApplication = async (id) => {
-  const query = `
-    UPDATE applications
-    SET status = 'Approved',
-        approval_date = NOW(),
-        rejection_reason = NULL
-    WHERE application_id = ?
-  `;
-  return await db.execute(query, [id]);
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Fetch the application to get user_id and program_type
+    const [appRows] = await connection.execute(
+      `SELECT application_id, user_id, program_type, status
+       FROM applications WHERE application_id = ?`,
+      [id]
+    );
+    if (!appRows.length) {
+      throw new Error('Application not found');
+    }
+    const application = appRows[0];
+    if (application.status === 'Approved') {
+      throw new Error('Application is already approved');
+    }
+
+    // 2. Update application status to Approved
+    await connection.execute(
+      `UPDATE applications
+       SET status = 'Approved',
+           approval_date = NOW(),
+           rejection_reason = NULL
+       WHERE application_id = ?`,
+      [id]
+    );
+
+    // 3. Ensure the beneficiary record is active
+    //    (beneficiary row is created during form submission;
+    //     this guarantees is_active = 1 upon approval)
+    const [benefRows] = await connection.execute(
+      `SELECT beneficiary_id FROM beneficiaries WHERE user_id = ?`,
+      [application.user_id]
+    );
+    if (benefRows.length) {
+      await connection.execute(
+        `UPDATE beneficiaries SET is_active = 1 WHERE user_id = ?`,
+        [application.user_id]
+      );
+    }
+
+    // 4. Increment filled slot on the matching active program
+    //    Match by program_name = program_type (case-insensitive)
+    await connection.execute(
+      `UPDATE programs
+       SET filled = filled + 1
+       WHERE LOWER(program_name) = LOWER(?)
+         AND status IN ('active', 'ongoing')
+         AND filled < slots
+       ORDER BY start_date DESC
+       LIMIT 1`,
+      [application.program_type]
+    );
+
+    // 5. Send approval notification to the beneficiary
+    const programLabel = (application.program_type || '').toUpperCase().replace('_', ' ');
+    await connection.execute(
+      `INSERT INTO notifications (user_id, title, message, type)
+       VALUES (?, ?, ?, ?)`,
+      [
+        application.user_id,
+        'Application Approved',
+        `Your ${programLabel} application has been approved. You are now enrolled in the program.`,
+        'application'
+      ]
+    );
+
+    await connection.commit();
+    return { applicationId: id, userId: application.user_id, programType: application.program_type };
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
 };
 
 exports.rejectApplication = async (id, reason) => {
-  const query = `
-    UPDATE applications
-    SET status = 'Rejected',
-        rejection_reason = ?,
-        approval_date = NULL
-    WHERE application_id = ?
-  `;
-  return await db.execute(query, [reason || null, id]);
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Fetch the application
+    const [appRows] = await connection.execute(
+      `SELECT application_id, user_id, program_type, status
+       FROM applications WHERE application_id = ?`,
+      [id]
+    );
+    if (!appRows.length) {
+      throw new Error('Application not found');
+    }
+    const application = appRows[0];
+
+    // 2. If previously approved, decrement the program filled count
+    if (application.status === 'Approved') {
+      await connection.execute(
+        `UPDATE programs
+         SET filled = GREATEST(filled - 1, 0)
+         WHERE LOWER(program_name) = LOWER(?)
+           AND status IN ('active', 'ongoing')
+         ORDER BY start_date DESC
+         LIMIT 1`,
+        [application.program_type]
+      );
+    }
+
+    // 3. Update application status to Rejected
+    await connection.execute(
+      `UPDATE applications
+       SET status = 'Rejected',
+           rejection_reason = ?,
+           approval_date = NULL
+       WHERE application_id = ?`,
+      [reason || null, id]
+    );
+
+    // 4. Send rejection notification
+    const programLabel = (application.program_type || '').toUpperCase().replace('_', ' ');
+    const notifMessage = reason
+      ? `Your ${programLabel} application has been rejected. Reason: ${reason}`
+      : `Your ${programLabel} application has been rejected. Please contact the office for more details.`;
+    await connection.execute(
+      `INSERT INTO notifications (user_id, title, message, type)
+       VALUES (?, ?, ?, ?)`,
+      [application.user_id, 'Application Rejected', notifMessage, 'application']
+    );
+
+    await connection.commit();
+    return { applicationId: id, userId: application.user_id, programType: application.program_type };
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
 };
 
 exports.getUserApplicationStatus = async (userId) => {

@@ -74,3 +74,35 @@ exports.getMonitoringRecords = async (req, res) => {
     res.status(statusCode).json({ message: error.message || 'Failed to fetch attendance monitoring records.' });
   }
 };
+
+exports.getProgramAttendance = async (req, res) => {
+  try {
+    const { programType } = req.params;
+    const { date } = req.query;
+    if (!programType) {
+      return res.status(400).json({ message: 'programType is required' });
+    }
+    const records = await attendanceService.getProgramAttendance(programType, date);
+    res.status(200).json(records);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({ message: error.message || 'Failed to fetch program attendance.' });
+  }
+};
+
+exports.adminMarkAttendance = async (req, res) => {
+  try {
+    const { userId, programType, date, status } = req.body;
+    if (!userId || !programType || !status) {
+      return res.status(400).json({ message: 'userId, programType, and status are required' });
+    }
+    if (!['Present', 'Absent'].includes(status)) {
+      return res.status(400).json({ message: 'status must be Present or Absent' });
+    }
+    const result = await attendanceService.adminMarkAttendance(userId, programType, date, status);
+    res.status(200).json(result);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({ message: error.message || 'Failed to mark attendance.' });
+  }
+};

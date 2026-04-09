@@ -1,14 +1,16 @@
-# Environment / credentials
+# Environment variables (secrets, API keys, DB credentials)
 .env
 .env.*
+!.env.example
 
 # Dependencies
 node_modules/
 
-# Uploaded user documents (PII - never push)
+# Uploaded user documents (PII — never push)
 uploads/
 
 # Database config with credentials
+config.js
 db.js
 src/config/db.js
 
@@ -16,8 +18,9 @@ src/config/db.js
 src/config/*.sql
 *.sql
 
-# Migration runner
+# Migration scripts
 run_migration.js
+migrate_*.js
 
 # OS files
 .DS_Store

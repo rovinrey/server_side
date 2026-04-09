@@ -15,7 +15,7 @@ const ensureAttendanceTable = async () => {
       attendance_date DATE NOT NULL,
       time_in DATETIME NULL,
       time_out DATETIME NULL,
-      status ENUM('Present', 'Incomplete') DEFAULT 'Incomplete',
+      status ENUM('Present', 'Incomplete', 'Absent') DEFAULT 'Incomplete',
       remarks VARCHAR(255) NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -25,6 +25,14 @@ const ensureAttendanceTable = async () => {
   `;
 
   await db.execute(createTableQuery);
+
+  // Ensure 'Absent' value exists in the ENUM for existing tables
+  try {
+    await db.execute(`ALTER TABLE attendance_records MODIFY COLUMN status ENUM('Present', 'Incomplete', 'Absent') DEFAULT 'Incomplete'`);
+  } catch (_) {
+    // ignore if already correct
+  }
+
   tableEnsured = true;
 };
 
@@ -180,4 +188,64 @@ exports.getMonitoringRecords = async (limit = 200) => {
 
   const [rows] = await db.execute(query, [safeLimit]);
   return rows;
+};
+
+// Get beneficiaries for a program with their today's attendance status
+exports.getProgramAttendance = async (programType, date) => {
+  await ensureAttendanceTable();
+  const attendanceDate = date || new Date().toISOString().slice(0, 10);
+
+  const query = `
+    SELECT
+      a.user_id,
+      COALESCE(
+        NULLIF(TRIM(CONCAT_WS(' ', b.first_name, b.middle_name, b.last_name)), ''),
+        u.user_name
+      ) AS beneficiary_name,
+      a.program_type,
+      ar.attendance_id,
+      ar.attendance_date,
+      ar.time_in,
+      ar.time_out,
+      ar.status AS attendance_status,
+      ar.remarks
+    FROM applications a
+    LEFT JOIN users u ON u.user_id = a.user_id
+    LEFT JOIN beneficiaries b ON b.user_id = a.user_id
+    LEFT JOIN attendance_records ar ON ar.user_id = a.user_id AND ar.attendance_date = ?
+    WHERE a.program_type = ? AND a.status = 'Approved'
+    GROUP BY a.user_id
+    ORDER BY beneficiary_name ASC
+  `;
+
+  const [rows] = await db.execute(query, [attendanceDate, programType]);
+  return rows;
+};
+
+// Admin marks a beneficiary as present or absent for a given date
+exports.adminMarkAttendance = async (userId, programType, date, status) => {
+  await ensureAttendanceTable();
+  const attendanceDate = date || new Date().toISOString().slice(0, 10);
+
+  const [existing] = await db.execute(
+    'SELECT attendance_id FROM attendance_records WHERE user_id = ? AND attendance_date = ? LIMIT 1',
+    [userId, attendanceDate]
+  );
+
+  if (existing.length > 0) {
+    await db.execute(
+      `UPDATE attendance_records SET status = ?, program_type = ?, remarks = ?, time_in = COALESCE(time_in, NOW()), time_out = CASE WHEN ? = 'Present' THEN COALESCE(time_out, NOW()) ELSE time_out END WHERE attendance_id = ?`,
+      [status, programType, `Marked ${status} by admin`, status, existing[0].attendance_id]
+    );
+  } else {
+    const timeIn = status === 'Present' ? 'NOW()' : 'NULL';
+    const timeOut = status === 'Present' ? 'NOW()' : 'NULL';
+    await db.execute(
+      `INSERT INTO attendance_records (user_id, program_type, attendance_date, time_in, time_out, status, remarks)
+       VALUES (?, ?, ?, ${timeIn}, ${timeOut}, ?, ?)`,
+      [userId, programType, attendanceDate, status, `Marked ${status} by admin`]
+    );
+  }
+
+  return { userId, date: attendanceDate, status };
 };
