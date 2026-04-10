@@ -9,11 +9,6 @@ node_modules/
 # Uploaded user documents (PII — never push)
 uploads/
 
-# Database config with credentials
-config.js
-db.js
-src/config/db.js
-
 # SQL migration files (schema exposure)
 src/config/*.sql
 *.sql
