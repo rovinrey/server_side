@@ -1,5 +1,6 @@
 const beneficiaryService = require('../services/beneficiary.services');
 const ExcelJS = require('exceljs');
+const { VALID_PROGRAMS, VALID_GENDERS, VALID_CIVIL_STATUSES, isValidPastDate, isValidPhone } = require('../validators/common.validators');
 
 // fetch all beneficiaries
 exports.getAllBeneficiaries = async (req, res) => {
@@ -105,7 +106,7 @@ exports.getById = async (req, res) => {
 exports.addBeneficiary = async (req, res) => {
     try {
         const {
-            first_name, last_name, birth_date, gender, civil_status, address, program_type
+            first_name, last_name, birth_date, gender, civil_status, address, program_type, contact_number
         } = req.body;
 
         // Validate required fields
@@ -115,9 +116,28 @@ exports.addBeneficiary = async (req, res) => {
             });
         }
 
-        const validPrograms = ['tupad', 'spes', 'gip', 'dilp', 'job_seekers'];
-        if (program_type && !validPrograms.includes(program_type)) {
-            return res.status(400).json({ message: 'Invalid program_type' });
+        if (first_name.trim().length < 2 || last_name.trim().length < 2) {
+            return res.status(400).json({ message: 'First name and last name must be at least 2 characters' });
+        }
+
+        if (!isValidPastDate(birth_date)) {
+            return res.status(400).json({ message: 'Birth date must be a valid date in the past' });
+        }
+
+        if (!VALID_GENDERS.includes(gender)) {
+            return res.status(400).json({ message: `Gender must be one of: ${VALID_GENDERS.join(', ')}` });
+        }
+
+        if (!VALID_CIVIL_STATUSES.includes(civil_status)) {
+            return res.status(400).json({ message: `Civil status must be one of: ${VALID_CIVIL_STATUSES.join(', ')}` });
+        }
+
+        if (contact_number && !isValidPhone(contact_number)) {
+            return res.status(400).json({ message: 'Invalid contact number format' });
+        }
+
+        if (program_type && !VALID_PROGRAMS.includes(program_type)) {
+            return res.status(400).json({ message: `Invalid program_type. Must be one of: ${VALID_PROGRAMS.join(', ')}` });
         }
 
         const result = await beneficiaryService.adminAddBeneficiary(req.body);
@@ -151,6 +171,26 @@ exports.updateBeneficiary = async (req, res) => {
             return res.status(400).json({
                 message: 'Required fields: first_name, last_name, birth_date, gender, civil_status, address'
             });
+        }
+
+        if (first_name.trim().length < 2 || last_name.trim().length < 2) {
+            return res.status(400).json({ message: 'First name and last name must be at least 2 characters' });
+        }
+
+        if (!isValidPastDate(birth_date)) {
+            return res.status(400).json({ message: 'Birth date must be a valid date in the past' });
+        }
+
+        if (!VALID_GENDERS.includes(gender)) {
+            return res.status(400).json({ message: `Gender must be one of: ${VALID_GENDERS.join(', ')}` });
+        }
+
+        if (!VALID_CIVIL_STATUSES.includes(civil_status)) {
+            return res.status(400).json({ message: `Civil status must be one of: ${VALID_CIVIL_STATUSES.join(', ')}` });
+        }
+
+        if (req.body.program_type && !VALID_PROGRAMS.includes(req.body.program_type)) {
+            return res.status(400).json({ message: `Invalid program_type. Must be one of: ${VALID_PROGRAMS.join(', ')}` });
         }
 
         const result = await beneficiaryService.adminUpdateBeneficiary(beneficiaryId, req.body);

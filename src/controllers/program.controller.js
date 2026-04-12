@@ -16,9 +16,13 @@ const getNotificationMeta = (status) => {
     }
 };
 
-// Create a new program
+// Create a new program (admin only)
 exports.createProgram = async (req, res) => {
     try {
+        if (req.user?.role !== 'admin') {
+            return res.status(403).json({ message: 'Only admin can create programs' });
+        }
+
         const { name, location, slots, budget, status, start_date, end_date } = req.body;
 
         if (!name || !location || !slots || !budget) {
@@ -80,22 +84,53 @@ exports.createProgram = async (req, res) => {
 // Get all programs
 exports.getAllPrograms = async (req, res) => {
     try {
-        const query = `
-            SELECT
-                p.*,
-                COUNT(CASE WHEN a.status = 'Approved' THEN 1 END) AS filled
-            FROM programs p
-            LEFT JOIN applications a
-                ON LOWER(p.program_name) LIKE CONCAT(LOWER(a.program_type), '%')
-                AND a.status = 'Approved'
-            GROUP BY p.program_id
-            ORDER BY p.program_id DESC
-        `;
+        // Check if program_id column exists in applications table
+        const [cols] = await db.execute(
+            `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'applications' AND COLUMN_NAME = 'program_id'`
+        );
+        const hasProgramId = cols.length > 0;
+
+        const query = hasProgramId
+            ? `SELECT p.*,
+                      COUNT(CASE WHEN a.status = 'Approved' THEN 1 END) AS approved_count
+               FROM programs p
+               LEFT JOIN applications a
+                   ON a.program_id = p.program_id AND a.status = 'Approved'
+               GROUP BY p.program_id
+               ORDER BY p.program_id DESC`
+            : `SELECT p.*, 0 AS approved_count
+               FROM programs p
+               ORDER BY p.program_id DESC`;
+
         const [programs] = await db.execute(query);
         res.status(200).json(programs);
     } catch (error) {
         console.error("Error fetching programs:", error);
         res.status(500).json({ message: "Error fetching programs", error: error.message });
+    }
+};
+
+// Get active programs for a given program type (for beneficiary program picker)
+exports.getActiveByType = async (req, res) => {
+    try {
+        const { programType } = req.params;
+        const allowed = ['tupad', 'spes', 'dilp', 'gip', 'job_seekers'];
+        if (!allowed.includes(programType.toLowerCase())) {
+            return res.status(400).json({ message: 'Invalid program type' });
+        }
+        const [rows] = await db.execute(
+            `SELECT program_id, program_name, location, slots, filled, budget, status, start_date, end_date
+             FROM programs
+             WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
+               AND status IN ('active', 'ongoing')
+             ORDER BY start_date DESC`,
+            [programType]
+        );
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error('Error fetching active programs by type:', error);
+        res.status(500).json({ message: 'Error fetching programs', error: error.message });
     }
 };
 
@@ -117,9 +152,13 @@ exports.getProgram = async (req, res) => {
     }
 };
 
-// Update a program
+// Update a program (admin only)
 exports.updateProgram = async (req, res) => {
     try {
+        if (req.user?.role !== 'admin') {
+            return res.status(403).json({ message: 'Only admin can update programs' });
+        }
+
         const { program_id } = req.params;
         const { name, location, slots, budget, status, start_date, end_date } = req.body;
 
@@ -146,9 +185,13 @@ exports.updateProgram = async (req, res) => {
     }
 };
 
-// Delete a program
+// Delete a program (admin only)
 exports.deleteProgram = async (req, res) => {
     try {
+        if (req.user?.role !== 'admin') {
+            return res.status(403).json({ message: 'Only admin can delete programs' });
+        }
+
         const { program_id } = req.params;
         
         const query = 'DELETE FROM programs WHERE program_id = ?';

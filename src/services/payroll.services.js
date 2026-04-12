@@ -228,6 +228,53 @@ exports.releasePayroll = async (monthInput, programType, adminUserId) => {
     }
 
     const [result] = await db.execute(query, params);
+
+    // After releasing, update program budget utilization (used column)
+    if (result.affectedRows > 0) {
+        try {
+            const payoutQuery = `
+                SELECT LOWER(program_type) AS program_type, SUM(total_payout) AS released_total
+                FROM payroll_records
+                WHERE payroll_month = ? AND status = 'Released'
+                ${programType ? 'AND LOWER(program_type) = LOWER(?)' : ''}
+                GROUP BY LOWER(program_type)
+            `;
+            const payoutParams = programType ? [selectedMonth, programType] : [selectedMonth];
+            const [payouts] = await db.execute(payoutQuery, payoutParams);
+
+            for (const row of payouts) {
+                // Validate that releasing this payroll does not exceed program budget
+                const [progRows] = await db.execute(
+                    `SELECT program_id, budget, used FROM programs
+                     WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
+                       AND status IN ('active', 'ongoing')
+                     ORDER BY start_date DESC LIMIT 1`,
+                    [row.program_type]
+                );
+
+                if (progRows.length > 0) {
+                    const prog = progRows[0];
+                    const newUsed = parseFloat(prog.used || 0) + parseFloat(row.released_total || 0);
+                    const budget = parseFloat(prog.budget || 0);
+
+                    if (budget > 0 && newUsed > budget) {
+                        console.warn(
+                            `[PAYROLL] WARNING: Releasing ₱${row.released_total} for ${row.program_type} would exceed budget ` +
+                            `(used: ₱${prog.used}, budget: ₱${budget}). Capping at budget.`
+                        );
+                    }
+
+                    await db.execute(
+                        `UPDATE programs SET used = used + ? WHERE program_id = ?`,
+                        [parseFloat(row.released_total || 0), prog.program_id]
+                    );
+                }
+            }
+        } catch (budgetErr) {
+            console.error('[PAYROLL] Budget update error (non-blocking):', budgetErr.message);
+        }
+    }
+
     return { updated: result.affectedRows };
 };
 

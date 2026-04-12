@@ -28,7 +28,7 @@ const notifyAllBeneficiaries = async ({ title, message, type, program_id }) => {
 const getUserNotifications = async (userId, { limit = 20, offset = 0 } = {}) => {
     const [rows] = await db.execute(
         `SELECT n.notification_id, n.title, n.message, n.type, n.is_read, n.created_at,
-                p.program_name, p.status AS program_status, p.start_date, p.end_date
+                n.program_id, p.program_name, p.status AS program_status, p.start_date, p.end_date
          FROM notifications n
          LEFT JOIN programs p ON n.program_id = p.program_id
          WHERE n.user_id = ?

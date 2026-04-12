@@ -15,29 +15,37 @@ const notificationRoutes = require('./src/routes/notification.routes.js');
 
 // --- APP SETUP ---
 const app = express();
+app.set('trust proxy', 1); // if behind a proxy (e.g. Heroku, Railway) to get correct client IP for rate limiting  
 
 // --- SECURITY MIDDLEWARE ---
 
-// Helmet sets secure HTTP headers (XSS protection, content-type sniffing, etc.)
-app.use(helmet({
-    crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow serving uploads cross-origin
-}));
-
-// CORS — only allow the frontend origin defined in .env
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
-    .split(',')
-    .map(o => o.trim());
+// CORS must come FIRST — before helmet, before anything else
+// so that preflight OPTIONS requests get proper headers even on error responses
+const allowedOrigins = [
+    'https://pesojuban.netlify.app',
+    ...(process.env.CORS_ORIGIN || 'http://localhost:5173')
+        .split(',')
+        .map(o => o.trim())
+        .filter(Boolean),
+];
+// Deduplicate origins
+const uniqueOrigins = [...new Set(allowedOrigins)];
 app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (mobile apps, curl, server-to-server)
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (!origin || uniqueOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            console.error(`CORS blocked origin: "${origin}" | Allowed: ${JSON.stringify(allowedOrigins)}`);
+            console.error(`CORS blocked origin: "${origin}" | Allowed: ${JSON.stringify(uniqueOrigins)}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true,
+}));
+
+// Helmet sets secure HTTP headers (XSS protection, content-type sniffing, etc.)
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow serving uploads cross-origin
 }));
 
 // Rate limiting — protect auth endpoints from brute-force attacks
@@ -81,12 +89,18 @@ app.use('/api/applications', applicationsRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/payroll', require('./src/routes/payroll.routes.js'));
+app.use('/api/reports', require('./src/routes/reports.routes.js'));
 app.use('/api/spes-documents', require('./src/routes/spes.documents.routes.js'));
 app.use('/api/documents', require('./src/routes/documents.routes.js'));
 app.use('/api/admin/documents', require('./src/routes/admin.documents.routes.js'));
 
 // Serve uploaded files as static assets
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// --- HEALTH CHECK (useful for Railway / uptime monitors) ---
+app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // --- START SERVER ---
 const PORT = process.env.PORT || 5000;

@@ -454,7 +454,14 @@ exports.updateDailyWage = async (req, res) => {
         if (daily_wage === undefined || daily_wage === null) {
             return res.status(400).json({ message: 'daily_wage is required' });
         }
-        const updatedWage = await beneficiaryService.updateDailyWage(daily_wage);
+        const wage = parseFloat(daily_wage);
+        if (isNaN(wage) || wage <= 0) {
+            return res.status(400).json({ message: 'Daily wage must be a positive number' });
+        }
+        if (wage > 100000) {
+            return res.status(400).json({ message: 'Daily wage cannot exceed ₱100,000' });
+        }
+        const updatedWage = await beneficiaryService.updateDailyWage(wage);
         res.status(200).json({ message: 'Daily wage updated successfully', daily_wage: updatedWage });
     } catch (error) {
         console.error('Error updating daily wage:', error.message);
@@ -497,8 +504,37 @@ exports.updateTupadDetails = async (req, res) => {
 // Admin: Update beneficiary personal info (for any program)
 exports.updateApplicationBeneficiary = async (req, res) => {
     try {
+        if (req.user?.role !== 'admin' && req.user?.role !== 'staff') {
+            return res.status(403).json({ message: 'Admin or staff access required' });
+        }
+
         const { applicationId } = req.params;
         const { first_name, last_name, middle_name, birth_date, gender, civil_status, contact_number, address } = req.body;
+
+        if (!first_name || !last_name) {
+            return res.status(400).json({ message: 'first_name and last_name are required' });
+        }
+
+        if (first_name.trim().length < 2 || last_name.trim().length < 2) {
+            return res.status(400).json({ message: 'Names must be at least 2 characters' });
+        }
+
+        if (birth_date) {
+            const bd = new Date(birth_date);
+            if (isNaN(bd.getTime()) || bd > new Date()) {
+                return res.status(400).json({ message: 'Birth date must be a valid date in the past' });
+            }
+        }
+
+        const validGenders = ['Male', 'Female', 'Other'];
+        if (gender && !validGenders.includes(gender)) {
+            return res.status(400).json({ message: `Gender must be one of: ${validGenders.join(', ')}` });
+        }
+
+        const validCivilStatuses = ['Single', 'Married', 'Widowed', 'Divorced', 'Separated'];
+        if (civil_status && !validCivilStatuses.includes(civil_status)) {
+            return res.status(400).json({ message: `Civil status must be one of: ${validCivilStatuses.join(', ')}` });
+        }
 
         if (!first_name || !last_name) {
             return res.status(400).json({ message: 'first_name and last_name are required' });

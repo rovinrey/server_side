@@ -14,6 +14,8 @@ exports.getAllBeneficiaries = async () => {
       COALESCE(b.contact_number, u.phone) AS contact_number,
       COALESCE(b.address, sd.present_address, NULL) AS address,
       a.program_type,
+      a.program_id,
+      p.program_name,
       'Approved' AS status,
       a.approval_date,
       a.applied_at
@@ -21,6 +23,7 @@ exports.getAllBeneficiaries = async () => {
     LEFT JOIN beneficiaries b ON b.user_id = a.user_id
     LEFT JOIN users u ON u.user_id = a.user_id
     LEFT JOIN spes_details sd ON sd.application_id = a.application_id
+    LEFT JOIN programs p ON p.program_id = a.program_id
     WHERE a.status = 'Approved'
     ORDER BY COALESCE(a.approval_date, a.updated_at, a.applied_at) DESC
   `;
@@ -241,7 +244,7 @@ exports.approveApplication = async (id) => {
 
     // 1. Fetch the application to get user_id and program_type
     const [appRows] = await connection.execute(
-      `SELECT application_id, user_id, program_type, status
+      `SELECT application_id, user_id, program_type, program_id, status
        FROM applications WHERE application_id = ?`,
       [id]
     );
@@ -264,8 +267,6 @@ exports.approveApplication = async (id) => {
     );
 
     // 3. Ensure the beneficiary record is active
-    //    (beneficiary row is created during form submission;
-    //     this guarantees is_active = 1 upon approval)
     const [benefRows] = await connection.execute(
       `SELECT beneficiary_id FROM beneficiaries WHERE user_id = ?`,
       [application.user_id]
@@ -277,18 +278,50 @@ exports.approveApplication = async (id) => {
       );
     }
 
-    // 4. Increment filled slot on the matching active program
-    //    Match by program_name = program_type (case-insensitive)
-    await connection.execute(
-      `UPDATE programs
-       SET filled = filled + 1
-       WHERE LOWER(program_name) = LOWER(?)
-         AND status IN ('active', 'ongoing')
-         AND filled < slots
-       ORDER BY start_date DESC
-       LIMIT 1`,
-      [application.program_type]
-    );
+    // 4. Check slot availability and increment filled slot using program_id
+    if (application.program_id) {
+      const [slotResult] = await connection.execute(
+        `UPDATE programs
+         SET filled = filled + 1
+         WHERE program_id = ?
+           AND status IN ('active', 'ongoing')
+           AND filled < slots`,
+        [application.program_id]
+      );
+      if (slotResult.affectedRows === 0) {
+        const [progCheck] = await connection.execute(
+          `SELECT program_id, slots, filled FROM programs WHERE program_id = ?`,
+          [application.program_id]
+        );
+        if (progCheck.length > 0 && progCheck[0].filled >= progCheck[0].slots) {
+          throw new Error(`Cannot approve: program has no available slots (${progCheck[0].filled}/${progCheck[0].slots})`);
+        }
+      }
+    } else {
+      // Legacy fallback for applications without program_id
+      const [slotResult] = await connection.execute(
+        `UPDATE programs
+         SET filled = filled + 1
+         WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
+           AND status IN ('active', 'ongoing')
+           AND filled < slots
+         ORDER BY start_date DESC
+         LIMIT 1`,
+        [application.program_type]
+      );
+      if (slotResult.affectedRows === 0) {
+        const [progCheck] = await connection.execute(
+          `SELECT program_id, slots, filled FROM programs
+           WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
+             AND status IN ('active', 'ongoing')
+           ORDER BY start_date DESC LIMIT 1`,
+          [application.program_type]
+        );
+        if (progCheck.length > 0 && progCheck[0].filled >= progCheck[0].slots) {
+          throw new Error(`Cannot approve: ${(application.program_type || '').toUpperCase()} program has no available slots (${progCheck[0].filled}/${progCheck[0].slots})`);
+        }
+      }
+    }
 
     // 5. Send approval notification to the beneficiary
     const programLabel = (application.program_type || '').toUpperCase().replace('_', ' ');
@@ -320,7 +353,7 @@ exports.rejectApplication = async (id, reason) => {
 
     // 1. Fetch the application
     const [appRows] = await connection.execute(
-      `SELECT application_id, user_id, program_type, status
+      `SELECT application_id, user_id, program_type, program_id, status
        FROM applications WHERE application_id = ?`,
       [id]
     );
@@ -329,17 +362,26 @@ exports.rejectApplication = async (id, reason) => {
     }
     const application = appRows[0];
 
-    // 2. If previously approved, decrement the program filled count
+    // 2. If previously approved, decrement the program filled count using program_id
     if (application.status === 'Approved') {
-      await connection.execute(
-        `UPDATE programs
-         SET filled = GREATEST(filled - 1, 0)
-         WHERE LOWER(program_name) = LOWER(?)
-           AND status IN ('active', 'ongoing')
-         ORDER BY start_date DESC
-         LIMIT 1`,
-        [application.program_type]
-      );
+      if (application.program_id) {
+        await connection.execute(
+          `UPDATE programs
+           SET filled = GREATEST(filled - 1, 0)
+           WHERE program_id = ?`,
+          [application.program_id]
+        );
+      } else {
+        await connection.execute(
+          `UPDATE programs
+           SET filled = GREATEST(filled - 1, 0)
+           WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
+             AND status IN ('active', 'ongoing')
+           ORDER BY start_date DESC
+           LIMIT 1`,
+          [application.program_type]
+        );
+      }
     }
 
     // 3. Update application status to Rejected
@@ -376,15 +418,18 @@ exports.rejectApplication = async (id, reason) => {
 exports.getUserApplicationStatus = async (userId) => {
   const query = `
     SELECT
-      application_id,
-      program_type,
-      status,
-      rejection_reason,
-      applied_at,
-      updated_at
-    FROM applications
-    WHERE user_id = ?
-    ORDER BY applied_at DESC
+      a.application_id,
+      a.program_type,
+      a.program_id,
+      p.program_name,
+      a.status,
+      a.rejection_reason,
+      a.applied_at,
+      a.updated_at
+    FROM applications a
+    LEFT JOIN programs p ON p.program_id = a.program_id
+    WHERE a.user_id = ?
+    ORDER BY a.applied_at DESC
   `;
 
   const [rows] = await db.execute(query, [userId]);

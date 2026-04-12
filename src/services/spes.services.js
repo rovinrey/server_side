@@ -13,13 +13,16 @@ exports.applyToSpes = async (data) => {
     try {
         await connection.beginTransaction();
 
-        // Check if the user already has an active (Pending/Approved) SPES application
-        const [existingApps] = await connection.execute(
-            `SELECT application_id FROM applications
-             WHERE user_id = ? AND program_type = 'spes' AND status IN ('Pending', 'Approved')
-             ORDER BY applied_at DESC LIMIT 1`,
-            [userId]
-        );
+        // Check if the user already has an active (Pending/Approved) SPES application for this specific batch
+        const existingSql = data.program_id
+            ? `SELECT application_id FROM applications
+               WHERE user_id = ? AND program_type = 'spes' AND program_id = ? AND status IN ('Pending', 'Approved')
+               ORDER BY applied_at DESC LIMIT 1`
+            : `SELECT application_id FROM applications
+               WHERE user_id = ? AND program_type = 'spes' AND status IN ('Pending', 'Approved')
+               ORDER BY applied_at DESC LIMIT 1`;
+        const existingParams = data.program_id ? [userId, data.program_id] : [userId];
+        const [existingApps] = await connection.execute(existingSql, existingParams);
 
         let applicationId;
 
@@ -68,9 +71,9 @@ exports.applyToSpes = async (data) => {
             // ── CREATE new application ──
             const [appResult] = await connection.execute(
                 `INSERT INTO applications (
-                    user_id, program_type, status, applied_at
-                ) VALUES (?, 'spes', 'Pending', NOW())`,
-                [userId]
+                    user_id, program_type, program_id, status, applied_at
+                ) VALUES (?, 'spes', ?, 'Pending', NOW())`,
+                [userId, data.program_id || null]
             );
             applicationId = appResult.insertId;
 

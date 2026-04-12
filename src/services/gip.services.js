@@ -12,19 +12,20 @@ exports.applyToGip = async (data) => {
     try {
         await connection.beginTransaction();
 
-        // Prevent duplicate pending applications
-        const [pending] = await connection.query(
-            "SELECT application_id FROM applications WHERE user_id = ? AND program_type = 'gip' AND status = 'Pending'",
-            [userId]
-        );
+        // Prevent duplicate pending/approved applications for the same program batch
+        const pendingSql = data.program_id
+            ? "SELECT application_id FROM applications WHERE user_id = ? AND program_type = 'gip' AND program_id = ? AND status IN ('Pending', 'Approved')"
+            : "SELECT application_id FROM applications WHERE user_id = ? AND program_type = 'gip' AND status = 'Pending'";
+        const pendingParams = data.program_id ? [userId, data.program_id] : [userId];
+        const [pending] = await connection.query(pendingSql, pendingParams);
         if (pending.length > 0) {
-            throw new Error('You already have a pending GIP application');
+            throw new Error('You already have a pending or approved application for this program batch');
         }
 
         // Create central application record
         const [appResult] = await connection.query(
-            "INSERT INTO applications (user_id, program_type, status, applied_at) VALUES (?, 'gip', 'Pending', NOW())",
-            [userId]
+            "INSERT INTO applications (user_id, program_type, program_id, status, applied_at) VALUES (?, 'gip', ?, 'Pending', NOW())",
+            [userId, data.program_id || null]
         );
         const applicationId = appResult.insertId;
 

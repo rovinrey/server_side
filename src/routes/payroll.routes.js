@@ -2,20 +2,21 @@ const express = require('express');
 const router = express.Router();
 const payrollController = require('../controllers/payroll.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
+const { requireAdmin, requireAdminOrStaff } = require('../validators/common.validators');
 
-// Payroll management (admin/staff)
-router.post('/generate', authMiddleware, payrollController.generatePayroll);
-router.get('/', authMiddleware, payrollController.getPayroll);
-router.put('/approve', authMiddleware, payrollController.approvePayroll);
-router.put('/release', authMiddleware, payrollController.releasePayroll);
+// Payroll management (admin only for generate/approve/release)
+router.post('/generate', authMiddleware, requireAdmin, payrollController.generatePayroll);
+router.get('/', authMiddleware, requireAdminOrStaff, payrollController.getPayroll);
+router.put('/approve', authMiddleware, requireAdmin, payrollController.approvePayroll);
+router.put('/release', authMiddleware, requireAdmin, payrollController.releasePayroll);
 
-// Analytics
-router.get('/analytics', authMiddleware, payrollController.getAnalytics);
+// Analytics (admin/staff)
+router.get('/analytics', authMiddleware, requireAdminOrStaff, payrollController.getAnalytics);
 
-// Disbursements
-router.post('/disbursements', authMiddleware, payrollController.createDisbursement);
-router.get('/disbursements', authMiddleware, payrollController.getDisbursements);
-router.put('/disbursements/:id/status', authMiddleware, payrollController.updateDisbursementStatus);
+// Disbursements (admin only)
+router.post('/disbursements', authMiddleware, requireAdmin, payrollController.createDisbursement);
+router.get('/disbursements', authMiddleware, requireAdminOrStaff, payrollController.getDisbursements);
+router.put('/disbursements/:id/status', authMiddleware, requireAdmin, payrollController.updateDisbursementStatus);
 
 // Beneficiary self-service
 router.get('/my-payouts', authMiddleware, payrollController.getBeneficiaryPayouts);

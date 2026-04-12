@@ -13,14 +13,14 @@ exports.applyTupad = async (data) => {
     try {
         await connection.beginTransaction();
 
-        // Prevent multiple active submissions while still allowing reapply after cooldown.
-        const hasPendingApplication = await tupadModel.hasPendingApplication(userId);
-        if (hasPendingApplication) {
-            throw new Error('You already have a pending TUPAD application');
+        // Prevent multiple active submissions for the same program batch.
+        const hasDuplicate = await tupadModel.hasPendingOrApprovedApplication(userId, data.program_id);
+        if (hasDuplicate) {
+            throw new Error('You already have a pending or approved application for this program batch');
         }
 
         // Create central application
-        const applicationId = await tupadModel.createApplication(connection, userId);
+        const applicationId = await tupadModel.createApplication(connection, userId, data.program_id);
 
         // Save program-specific details
         await tupadModel.createTupadDetails(connection, {
@@ -65,7 +65,7 @@ exports.approveTupadApplication = async (applicationId) => {
 
         // 1. Fetch the application
         const [appRows] = await connection.execute(
-            `SELECT application_id, user_id, program_type, status
+            `SELECT application_id, user_id, program_type, program_id, status
              FROM applications WHERE application_id = ? AND program_type = 'tupad'`,
             [applicationId]
         );
@@ -90,16 +90,48 @@ exports.approveTupadApplication = async (applicationId) => {
             [application.user_id]
         );
 
-        // 4. Increment filled slot on matching TUPAD program
-        await connection.execute(
-            `UPDATE programs
-             SET filled = filled + 1
-             WHERE LOWER(program_name) = 'tupad'
-               AND status IN ('active', 'ongoing')
-               AND filled < slots
-             ORDER BY start_date DESC
-             LIMIT 1`
-        );
+        // 4. Check slot availability and increment filled slot using program_id
+        if (application.program_id) {
+            const [slotResult] = await connection.execute(
+                `UPDATE programs
+                 SET filled = filled + 1
+                 WHERE program_id = ?
+                   AND status IN ('active', 'ongoing')
+                   AND filled < slots`,
+                [application.program_id]
+            );
+            if (slotResult.affectedRows === 0) {
+                const [progCheck] = await connection.execute(
+                    `SELECT program_id, slots, filled FROM programs WHERE program_id = ?`,
+                    [application.program_id]
+                );
+                if (progCheck.length > 0 && progCheck[0].filled >= progCheck[0].slots) {
+                    throw new Error(`Cannot approve: program has no available slots (${progCheck[0].filled}/${progCheck[0].slots})`);
+                }
+            }
+        } else {
+            // Legacy fallback for applications without program_id
+            const [slotResult] = await connection.execute(
+                `UPDATE programs
+                 SET filled = filled + 1
+                 WHERE LOWER(program_name) LIKE 'tupad%'
+                   AND status IN ('active', 'ongoing')
+                   AND filled < slots
+                 ORDER BY start_date DESC
+                 LIMIT 1`
+            );
+            if (slotResult.affectedRows === 0) {
+                const [progCheck] = await connection.execute(
+                    `SELECT program_id, slots, filled FROM programs
+                     WHERE LOWER(program_name) LIKE 'tupad%'
+                       AND status IN ('active', 'ongoing')
+                     ORDER BY start_date DESC LIMIT 1`
+                );
+                if (progCheck.length > 0 && progCheck[0].filled >= progCheck[0].slots) {
+                    throw new Error(`Cannot approve: TUPAD program has no available slots (${progCheck[0].filled}/${progCheck[0].slots})`);
+                }
+            }
+        }
 
         // 5. Send notification
         await connection.execute(
