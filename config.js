@@ -1,29 +1,22 @@
-// config/db.js
-require('dotenv').config();
-const mysql = require('mysql2');
+import mysql from 'mysql2';
+import dotenv from 'dotenv';
 
-const pool = mysql.createPool({
-    host: process.env.MYSQL_HOST || process.env.RAILWAY_PRIVATE_DOMAIN || 'localhost',
-    user: process.env.MYSQL_USER || 'root',
-    password: process.env.MYSQL_PASSWORD || process.env.MYSQL_ROOT_PASSWORD || '',
-    database: process.env.MYSQLDATABASE || 'capstone_db',
-    port: process.env.MYSQL_PORT || 3306,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
+dotenv.config();
+
+const connection = mysql.createConnection({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
 });
 
-// Test the connection
-pool.getConnection((err, connection) => {
-    if (err) {
-        console.error('Database connection failed!');
-        console.error('Error code:', err.code);
-        console.error('Error message:', err.message);
-        return;
-    }
-    console.log('Database connected successfully!');
-    console.log('Connected as ID:', connection.threadId);
-    connection.release();
+connection.connect((error) => {
+  if (error) {
+    console.error('❌ Connection error:', error);
+  } else {
+    console.log('✅ Connected to the MySQL database!');
+  }
 });
 
-module.exports = pool.promise();
+export default connection;
