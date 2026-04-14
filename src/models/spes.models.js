@@ -1,4 +1,4 @@
-const db = require('../../db');
+const db = require('../../config');
 
 // Model for SPES application
 exports.createSpesApplication = async (connection, userId) => {

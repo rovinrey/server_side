@@ -1,4 +1,4 @@
-const db = require('../../db');
+const db = require('../../config');
 
 /**
  * Apply to GIP program — creates central application + gip_details + beneficiary record.

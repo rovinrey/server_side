@@ -1,5 +1,5 @@
 // services/tupadService.js
-const db = require('../../db');
+const db = require('../../config');
 const tupadModel = require('../models/tupad.models');
 
 exports.applyTupad = async (data) => {
@@ -13,14 +13,14 @@ exports.applyTupad = async (data) => {
     try {
         await connection.beginTransaction();
 
-        // Prevent multiple active submissions for the same program batch.
-        const hasDuplicate = await tupadModel.hasPendingOrApprovedApplication(userId, data.program_id);
+        // Prevent multiple active submissions for the user (no program_id logic)
+        const hasDuplicate = await tupadModel.hasPendingOrApprovedApplication(userId);
         if (hasDuplicate) {
-            throw new Error('You already have a pending or approved application for this program batch');
+            throw new Error('You already have a pending or approved application');
         }
 
-        // Create central application
-        const applicationId = await tupadModel.createApplication(connection, userId, data.program_id);
+        // Create central application (no program_id)
+        const applicationId = await tupadModel.createApplication(connection, userId);
 
         // Save program-specific details
         await tupadModel.createTupadDetails(connection, {

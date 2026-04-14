@@ -1,3 +1,4 @@
+
 const authService = require('../services/auth.services');
 
 exports.signup = async (req, res) => {
@@ -16,6 +17,7 @@ exports.login = async (req, res) => {
         const data = await authService.login(req.body);
         res.json(data);
     } catch (error) {
+        console.error('Login error:', error); // Log the full error for debugging
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });

@@ -1,11 +1,11 @@
 // models/tupadModel.js
-const db = require('../../db');
+const db = require('../../config');
 
-exports.createApplication = async (connection, userId, programId) => {
+exports.createApplication = async (connection, userId) => {
     const [result] = await connection.query(
-        `INSERT INTO applications (user_id, program_type, program_id)
-         VALUES (?, 'tupad', ?)`,
-        [userId, programId || null]
+        `INSERT INTO applications (user_id, program_type)
+         VALUES (?, 'tupad')`,
+        [userId]
     );
     return result.insertId;
 };
@@ -49,20 +49,10 @@ exports.createBeneficiary = async (connection, data) => {
     );
 };
 
-exports.hasPendingOrApprovedApplication = async (userId, programId) => {
-    // If a specific program batch is selected, check per-batch
-    if (programId) {
-        const [rows] = await db.query(
-            `SELECT application_id FROM applications
-             WHERE user_id = ? AND program_type = 'tupad' AND program_id = ? AND status IN ('Pending', 'Approved')`,
-            [userId, programId]
-        );
-        return rows.length > 0;
-    }
-    // Fallback: if no program_id, block only if there's a pending (legacy behavior)
+exports.hasPendingOrApprovedApplication = async (userId) => {
     const [rows] = await db.query(
         `SELECT application_id FROM applications
-         WHERE user_id = ? AND program_type = 'tupad' AND status = 'Pending'`,
+         WHERE user_id = ? AND program_type = 'tupad' AND status IN ('Pending', 'Approved')`,
         [userId]
     );
     return rows.length > 0;

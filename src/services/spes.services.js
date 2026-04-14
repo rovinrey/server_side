@@ -1,4 +1,4 @@
-const db = require('../../db');
+const db = require('../../config');
 
 // Apply to SPES – creates a new application or updates the existing one.
 // Supports individual per-form submissions (upsert pattern).

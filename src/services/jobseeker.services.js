@@ -1,4 +1,4 @@
-const db = require('../../db');
+const db = require('../../config');
 
 /**
  * Apply to Job Seekers program — creates central application + jobseeker_details + beneficiary record.

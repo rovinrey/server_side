@@ -1,4 +1,4 @@
-const db = require('../../db');
+const db = require('../../config');
 
 /**
  * Create a notification for ALL beneficiaries (broadcast).

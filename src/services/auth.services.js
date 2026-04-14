@@ -1,6 +1,6 @@
 ﻿const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../../db');
+const db = require('../../config');
 
 const SALT_ROUNDS = 12;
 const TOKEN_EXPIRY = '8h';

@@ -1,4 +1,4 @@
-const db = require('../../db');
+const db = require('../../config');
 const { notifyAllBeneficiaries } = require('../services/notification.services');
 
 // Map program status to a notification type and human-readable label

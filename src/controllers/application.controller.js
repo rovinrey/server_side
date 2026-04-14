@@ -1,4 +1,4 @@
-const db = require('../../db');
+const db = require('../../config');
 const ExcelJS = require('exceljs');
 const tupadService = require('../services/tupad.services');
 const dilpService = require('../services/dilp.services');
