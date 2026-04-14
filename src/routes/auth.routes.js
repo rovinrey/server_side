@@ -1,8 +1,5 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const cors = require('cors');
-const router = express.Router();
-router.use(cors());
 const authController = require('../controllers/auth.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 const { validateSignup, validateLogin } = require('../validators/auth.validators');

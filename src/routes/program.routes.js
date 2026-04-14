@@ -1,7 +1,5 @@
 const express = require('express');
-const cors = require('cors');
 const router = express.Router();
-router.use(cors());
 const programController = require('../controllers/program.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 const { validateProgram, validateBudgetUpdate } = require('../validators/program.validators');

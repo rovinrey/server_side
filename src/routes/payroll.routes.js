@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const router = express.Router();
-router.use(cors());
 const payrollController = require('../controllers/payroll.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 const { requireAdmin, requireAdminOrStaff } = require('../validators/common.validators');

@@ -1,7 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const router = express.Router();
-router.use(cors());
 const notificationController = require('../controllers/notification.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 
