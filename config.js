@@ -9,11 +9,11 @@ if (process.env.NODE_ENV === 'production' && fs.existsSync(path.resolve(__dirnam
 require('dotenv').config({ path: envPath });
 
 const pool = mysql.createPool({
-    host: process.env.DB_HOST || process.env.MYSQL_HOST || process.env.RAILWAY_PRIVATE_DOMAIN || 'localhost',
-    user: process.env.DB_USER || process.env.MYSQL_USER || 'root',
-    password: process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || process.env.MYSQL_ROOT_PASSWORD || '',
-    database: process.env.DB_NAME || process.env.MYSQL_DATABASE || 'capstone_db',
-    port: process.env.DB_PORT || process.env.MYSQL_PORT || 3306,
+    host: process.env.MYSQLHOST || process.env.DB_HOST || 'localhost',
+    user: process.env.MYSQLUSER || process.env.DB_USER || 'root',
+    password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || process.env.DB_NAME || 'capstone_db',
+    port: process.env.MYSQL_PORT || process.env.DB_PORT || 3306,
 });
 
 // Test the connection
