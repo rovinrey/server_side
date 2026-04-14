@@ -1,5 +1,7 @@
 const express = require('express');
+const cors = require('cors');
 const router = express.Router();
+router.use(cors());
 const authMiddleware = require('../middlewares/auth.middleware');
 const attendanceController = require('../controllers/attendance.controller');
 

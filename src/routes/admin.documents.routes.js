@@ -1,5 +1,7 @@
 const express = require('express');
+const cors = require('cors');
 const router = express.Router();
+router.use(cors());
 const authMiddleware = require('../middlewares/auth.middleware');
 const adminDocsController = require('../controllers/admin.documents.controller');
 const documentsUpload = require('../middlewares/documents.upload.middleware');

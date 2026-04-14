@@ -2,7 +2,9 @@
 // for all programs
 
 const express = require('express');
+const cors = require('cors');
 const router = express.Router();
+router.use(cors());
 const applicationController = require('../controllers/application.controller');
 const { validateTupad } = require('../validators/tupad.validators');
 const { validatedSpes } = require('../validators/spes.validators');

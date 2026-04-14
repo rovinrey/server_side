@@ -1,6 +1,8 @@
 // routes/tupadRoutes.js
 const express = require('express');
+const cors = require('cors');
 const router = express.Router();
+router.use(cors());
 
 const controller = require('../controllers/tupad.controller');
 const auth = require('../middlewares/auth.middleware');

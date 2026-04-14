@@ -1,5 +1,7 @@
 const express = require('express');
+const cors = require('cors');
 const router = express.Router();
+router.use(cors());
 const reportsController = require('../controllers/reports.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 const { requireAdminOrStaff } = require('../validators/common.validators');
