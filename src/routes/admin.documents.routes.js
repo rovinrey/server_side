@@ -1,9 +1,10 @@
 const express = require('express');
-const cors = require('cors');
 const authMiddleware = require('../middlewares/auth.middleware');
 const adminDocsController = require('../controllers/admin.documents.controller');
 const documentsUpload = require('../middlewares/documents.upload.middleware');
 const spesUpload = require('../middlewares/upload.middleware');
+
+const router = express.Router();
 
 // All routes require authentication (admin only on frontend via ProtectedRoute)
 
