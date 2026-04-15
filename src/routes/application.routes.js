@@ -2,7 +2,6 @@
 // for all programs
 
 const express = require('express');
-const cors = require('cors');
 const router = express.Router();
 const applicationController = require('../controllers/application.controller');
 const { validateTupad } = require('../validators/tupad.validators');
@@ -12,7 +11,8 @@ const { validateGip } = require('../validators/gip.validators');
 const { validateJobSeekers } = require('../validators/jobseeker.validators');
 const { requireAdmin, requireAdminOrStaff } = require('../validators/common.validators');
 const authMiddleware = require('../middlewares/auth.middleware');
-// Get all applications from all programs
+// Get all applications from all program
+
 router.get('/all', authMiddleware, applicationController.getAllApplications);
 router.get('/export', authMiddleware, requireAdmin, applicationController.exportApplications);
 router.get('/reports/tupad-monthly', authMiddleware, applicationController.getTupadMonthlyReport);
