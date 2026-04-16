@@ -1,5 +1,32 @@
 
+
 const authService = require('../services/auth.services');
+const passwordService = require('../services/password.services');
+// POST /api/auth/forgot-password
+exports.forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+        const result = await passwordService.forgotPassword(email);
+        res.json(result);
+    } catch (error) {
+        const status = error.statusCode || 500;
+        const message = error.statusCode ? error.message : 'An unexpected error occurred';
+        res.status(status).json({ message });
+    }
+};
+
+// POST /api/auth/reset-password
+exports.resetPassword = async (req, res) => {
+    try {
+        const { token, password } = req.body;
+        const result = await passwordService.resetPassword(token, password);
+        res.json(result);
+    } catch (error) {
+        const status = error.statusCode || 500;
+        const message = error.statusCode ? error.message : 'An unexpected error occurred';
+        res.status(status).json({ message });
+    }
+};
 
 exports.signup = async (req, res) => {
     try {

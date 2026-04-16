@@ -14,8 +14,11 @@ const authLimiter = rateLimit({
     message: { message: 'Too many login attempts, please try again later.' },
 });
 
+
 router.post('/signup', authLimiter, validateSignup, authController.signup);
 router.post('/login', authLimiter, validateLogin, authController.login);
+router.post('/forgot-password', authController.forgotPassword);
+router.post('/reset-password', authController.resetPassword);
 router.get('/getProfile', authMiddleware, authController.getProfile);
 
 module.exports = router;
