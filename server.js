@@ -7,13 +7,14 @@ const path = require("path");
 
 const app = express();
 
-// --- TRUST PROXY (Railway/Heroku) ---
 app.set("trust proxy", 1);
 
 // --- CORS CONFIGURATION ---
 const allowedOrigins = [
-    "https://pesojuban.netlify.app",
-    "http://localhost:5173",
+    "https://pesojuban.netlify.app", // this is for production 
+    "http://localhost:5173", // this is for local development (Vite default port)
+    "http://localhost:5174", // additional local port (if needed)
+    "http://localhost:5175", // additional local port (if needed)
 ];
 
 const corsOptions = {
@@ -36,10 +37,8 @@ const corsOptions = {
     optionsSuccessStatus: 200,
 };
 
-// ✅ APPLY CORS FIRST (CRITICAL)
 app.use(cors(corsOptions));
 
-// ✅ HANDLE PREFLIGHT REQUESTS (CRITICAL)
 app.options("*", cors(corsOptions));
 
 // --- SECURITY ---
