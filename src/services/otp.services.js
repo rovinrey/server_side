@@ -5,7 +5,7 @@ const crypto = require('crypto');
 /**
  * Production-Ready OTP Service
  * Handles OTP generation, sending, and verification
- * Supports both email and phone verification
+ * Supports both email and SMS/phone verification
  */
 
 // Configuration
@@ -39,6 +39,22 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
             console.log('✅ Email service configured successfully');
         }
     });
+}
+
+/**
+ * Initialize SMS Service (Twilio)
+ * Requires: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+ */
+let twilioClient = null;
+
+if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+    try {
+        const twilio = require('twilio');
+        twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        console.log('✅ Twilio SMS service configured successfully');
+    } catch (error) {
+        console.warn('⚠️  Twilio not available, SMS will use fallback mode:', error.message);
+    }
 }
 
 /**
@@ -138,19 +154,49 @@ const sendOTPEmail = async (email, otp, userName = 'User') => {
 };
 
 /**
- * Mock SMS sending (Replace with actual SMS service like Twilio)
- * For production, integrate with Twilio, AWS SNS, or similar
+ * Send OTP via SMS using Twilio
+ * Production: Uses Twilio API
+ * Development: Logs OTP to console
  */
-const sendOTPSMS = async (phone, otp) => {
+const sendOTPSMS = async (phone, otp, userName = 'User') => {
     try {
-        // TODO: Integrate with actual SMS service (Twilio, AWS SNS, etc.)
-        console.log(`📱 SMS OTP to ${phone}: ${otp}`);
-        
-        // For development, just log the OTP
-        if (process.env.NODE_ENV === 'development') {
-            console.log(`[DEV MODE] OTP Code for ${phone}: ${otp}`);
+        const message = `PESO Juban: Your verification code is ${otp}. This code expires in ${OTP_EXPIRY_MINUTES} minutes. Do not share this code with anyone.`;
+
+        // Production: Use Twilio
+        if (twilioClient && process.env.TWILIO_PHONE_NUMBER && process.env.NODE_ENV === 'production') {
+            try {
+                await twilioClient.messages.create({
+                    body: message,
+                    from: process.env.TWILIO_PHONE_NUMBER,
+                    to: phone, // Ensure phone is in E.164 format
+                });
+                console.log(`✅ OTP SMS sent to ${phone}`);
+                return true;
+            } catch (twilioError) {
+                console.error('❌ Twilio SMS error:', twilioError.message);
+                throw twilioError;
+            }
         }
-        
+
+        // Development: Log to console
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`\n${'='.repeat(60)}`);
+            console.log('📱 SMS OTP (Development Mode)');
+            console.log(`${'='.repeat(60)}`);
+            console.log(`To: ${phone}`);
+            console.log(`User: ${userName}`);
+            console.log(`OTP Code: ${otp}`);
+            console.log(`Message: ${message}`);
+            console.log(`${'='.repeat(60)}\n`);
+            return true;
+        }
+
+        // Fallback if Twilio not configured in production
+        if (process.env.NODE_ENV === 'production' && !twilioClient) {
+            console.warn('⚠️  Twilio not configured, SMS OTP:', otp);
+            return true; // Allow flow to continue
+        }
+
         return true;
     } catch (error) {
         console.error('❌ Error sending OTP SMS:', error.message);
