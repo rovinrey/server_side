@@ -11,7 +11,7 @@ app.set("trust proxy", 1);
 
 // --- CORS CONFIGURATION ---
 const allowedOrigins = [
-    "https://pesojuban.netlify.app", // this is for production 
+    "https://client-side-swart.vercel.app", // this is for production 
     "http://localhost:5173", // this is for local development (Vite default port)
     "http://localhost:5174", // additional local port (if needed)
     "http://localhost:5175", // additional local port (if needed)
