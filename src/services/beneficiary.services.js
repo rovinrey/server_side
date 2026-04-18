@@ -14,8 +14,8 @@ exports.getAllBeneficiaries = async () => {
       COALESCE(b.contact_number, u.phone) AS contact_number,
       COALESCE(b.address, sd.present_address, NULL) AS address,
       a.program_type,
-      a.program_id,
-      p.program_name,
+      NULL AS program_id,
+      NULL AS program_name,
       'Approved' AS status,
       a.approval_date,
       a.applied_at
@@ -23,7 +23,6 @@ exports.getAllBeneficiaries = async () => {
     LEFT JOIN beneficiaries b ON b.user_id = a.user_id
     LEFT JOIN users u ON u.user_id = a.user_id
     LEFT JOIN spes_details sd ON sd.application_id = a.application_id
-    LEFT JOIN programs p ON p.program_id = a.program_id
     WHERE a.status = 'Approved'
     ORDER BY COALESCE(a.approval_date, a.updated_at, a.applied_at) DESC
   `;
@@ -420,14 +419,13 @@ exports.getUserApplicationStatus = async (userId) => {
     SELECT
       a.application_id,
       a.program_type,
-      a.program_id,
-      p.program_name,
+      NULL AS program_id,
+      NULL AS program_name,
       a.status,
       a.rejection_reason,
       a.applied_at,
       a.updated_at
     FROM applications a
-    LEFT JOIN programs p ON p.program_id = a.program_id
     WHERE a.user_id = ?
     ORDER BY a.applied_at DESC
   `;
