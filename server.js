@@ -71,8 +71,7 @@ app.use((req, res, next) => {
 });
 
 // --- ROUTES ---
-app.use("/api/auth", require("./src/routes/auth.routes.js"));
-app.use("/api/tupad", require("./src/routes/tupad.routes.js"));
+app.use("/api/auth", require("./src/routes/auth.routes.js"));app.use("/api/auth/otp", require("./src/routes/otp.routes.js"));app.use("/api/tupad", require("./src/routes/tupad.routes.js"));
 app.use("/api/programs", require("./src/routes/program.routes.js"));
 app.use("/api/beneficiaries", require("./src/routes/beneficiary.routes.js"));
 app.use("/api/applications", require("./src/routes/application.routes.js"));
