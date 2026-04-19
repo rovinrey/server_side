@@ -21,11 +21,11 @@ let dbConfig = null;
 // PRODUCTION MODE: Use Railway's environment variables
 if (isProduction) {
     // Railway provides these variables automatically
-    const mysqlUser = process.env.MYSQLUSER || process.env.MYSQL_USER || 'root';
-    const mysqlPassword = process.env.MYSQLPASSWORD || process.env.MYSQL_ROOT_PASSWORD || '';
-    const mysqlHost = process.env.MYSQLHOST || process.env.MYSQL_HOST || 'mysql.railway.internal';
-    const mysqlPort = parseInt(process.env.MYSQLPORT || process.env.MYSQL_PORT || '3306');
-    const mysqlDatabase = process.env.MYSQL_DATABASE || 'railway';
+    const mysqlUser = process.env.MYSQLUSER || process.env.MYSQL_USER ;
+    const mysqlPassword = process.env.MYSQLPASSWORD || process.env.MYSQL_ROOT_PASSWORD ;
+    const mysqlHost = process.env.MYSQLHOST || process.env.MYSQL_HOST;
+    const mysqlPort = parseInt(process.env.MYSQLPORT || process.env.MYSQL_PORT );
+    const mysqlDatabase = process.env.MYSQL_DATABASE ;
 
     dbConfig = {
         host: mysqlHost,
