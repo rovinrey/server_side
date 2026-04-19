@@ -1,7 +1,6 @@
 # Environment variables (secrets, API keys, DB credentials)
-.env
-.env.local
-.env.*.local
+# Ignore ALL .env files except .env.example
+.env*
 !.env.example
 # Dependencies
 node_modules/
