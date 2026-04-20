@@ -1,4 +1,4 @@
-const db = require('../config/db');
+const db = require('../../config');
 
 // create new program
 exports.createProgram = async (program) => {

@@ -4,6 +4,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const path = require("path");
+const { initializePool } = require("./config");
 
 const app = express();
 
@@ -113,6 +114,13 @@ app.use((err, req, res, next) => {
         });
     }
 
+    // Database connection errors
+    if (err.message.includes("Database") || err.message.includes("ECONNREFUSED")) {
+        return res.status(503).json({
+            message: "Database unavailable",
+        });
+    }
+
     res.status(500).json({
         message: "Internal Server Error",
     });
@@ -121,7 +129,21 @@ app.use((err, req, res, next) => {
 // --- START SERVER ---
 const PORT = process.env.PORT || 8080;
 
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log("✅ Allowed Origins:", allowedOrigins);
-});
+const startServer = async () => {
+    try {
+        // Initialize database pool before starting server
+        await initializePool();
+        console.log("✅ Database pool initialized");
+
+        app.listen(PORT, () => {
+            console.log(`🚀 Server running on port ${PORT}`);
+            console.log("✅ Allowed Origins:", allowedOrigins);
+        });
+    } catch (error) {
+        console.error("❌ Failed to start server:", error.message);
+        process.exit(1);
+    }
+};
+
+startServer();
+
