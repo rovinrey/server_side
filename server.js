@@ -3,8 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const path = require("path");
-const { initializePool } = require("./config");
+const path = require("path");   
 
 const app = express();
 
@@ -131,10 +130,7 @@ const PORT = process.env.PORT || 8080;
 
 const startServer = async () => {
     try {
-        // Initialize database pool before starting server
-        await initializePool();
-        console.log("✅ Database pool initialized");
-
+       
         app.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
             console.log("✅ Allowed Origins:", allowedOrigins);

@@ -1,96 +1,73 @@
-// config.js
-require('dotenv').config();
-const mysql = require('mysql2/promise');
+require("dotenv").config();
+const mysql = require("mysql2/promise");
+
+const isProduction = process.env.NODE_ENV === "production";
 
 const dbConfig = {
-  host: process.env.MYSQLHOST || 'localhost',
-  user: process.env.MYSQLUSER || 'root',
-  password: process.env.MYSQLPASSWORD || '',
-  database: process.env.MYSQLDATABASE || 'capstone_db',
-  port: process.env.MYSQLPORT || 3306,
+  // Railway injects MYSQLHOST, local uses fallback
+  host:     process.env.MYSQLHOST     || "localhost",
+  user:     process.env.MYSQLUSER     || "root",
+  password: process.env.MYSQLPASSWORD || "",
+  database: process.env.MYSQLDATABASE || "capstone_db",
+  port:     Number(process.env.MYSQLPORT) || 3306,
+
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: isProduction ? 20 : 5,  // more headroom on Railway
   queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelayMs: 0,
+  enableKeepAlive: true,       // prevents idle connection drops
+  keepAliveInitialDelay: 10000,
+
+  // Railway MySQL requires SSL in production
+  ...(isProduction && {
+    ssl: { rejectUnauthorized: false },
+  }),
 };
 
 let pool = null;
 
-const initializePool = async () => {
-  try {
-    pool = mysql.createPool(dbConfig);
-    console.log('✅ Database pool initialized successfully');
-
-    // Test connection
-    const connection = await pool.getConnection();
-    console.log('✅ Database connection verified');
-    connection.release();
-
-    return pool;
-  } catch (error) {
-    console.error('❌ Database initialization error:', error.message);
-    throw error;
-  }
-};
-
 const getPool = () => {
   if (!pool) {
-    throw new Error('Database pool not initialized. Call initializePool() first.');
+    pool = mysql.createPool(dbConfig);
+
+    pool.on("error", (err) => {
+      console.error("❌ Pool error:", err.message);
+      if (["PROTOCOL_CONNECTION_LOST", "ECONNRESET", "ETIMEDOUT"].includes(err.code)) {
+        pool = null; // force re-init on next call
+      }
+    });
   }
   return pool;
 };
 
-// Async wrapper for safer connection retrieval
-const getConnection = async () => {
-  try {
-    if (!pool) {
-      throw new Error('Database pool not initialized');
-    }
-    return await pool.getConnection();
-  } catch (error) {
-    console.error('❌ Failed to get database connection:', error.message);
-    throw error;
-  }
+// Ping on startup to catch misconfig early
+const testConnection = async () => {
+  const conn = await getPool().getConnection();
+  await conn.ping();
+  conn.release();
+  console.log("✅ Database connected");
 };
 
-// Execute query with connection management
-const executeQuery = async (query, values = []) => {
-  let connection;
+const query = async (sql, params) => {
   try {
-    connection = await getConnection();
-    const [results] = await connection.execute(query, values);
+    const [results] = await getPool().execute(sql, params);
     return results;
   } catch (error) {
-    console.error('❌ Query execution error:', error.message);
+    console.error("❌ Query error:", {
+      message: error.message,
+      code: error.code,
+      sql: sql.substring(0, 100),
+    });
     throw error;
-  } finally {
-    if (connection) {
-      connection.release();
-    }
   }
 };
 
-module.exports = {
-  initializePool,
-  getPool,
-  getConnection,
-  executeQuery,
-  dbConfig,
-  // Compatibility method for direct pool.execute() calls
-  execute: async (...args) => executeQuery(...args),
-  query: async (...args) => {
-    let connection;
-    try {
-      if (!pool) throw new Error('Database pool not initialized');
-      connection = await pool.getConnection();
-      const [results] = await connection.query(...args);
-      return [results];
-    } catch (error) {
-      console.error('❌ Query execution error:', error.message);
-      throw error;
-    } finally {
-      if (connection) connection.release();
-    }
+const getConnection = async () => {
+  try {
+    return await getPool().getConnection();
+  } catch (error) {
+    console.error("❌ Failed to acquire connection:", error.message);
+    throw error;
   }
 };
+
+module.exports = { query, getConnection, getPool, testConnection };
