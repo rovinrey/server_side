@@ -110,6 +110,32 @@ app.get("/api/health", (req, res) => {
     res.json({ status: "ok", time: new Date().toISOString() });
 });
 
+// --- DEBUG ENDPOINT (only in development or with auth token) ---
+app.get("/api/debug", (req, res) => {
+    // Mask sensitive values
+    const maskValue = (val) => val ? "***SET***" : "❌ NOT SET";
+
+    res.json({
+        environment: process.env.NODE_ENV,
+        database: {
+            host: process.env.MYSQLHOST || "❌ NOT SET",
+            user: process.env.MYSQLUSER || "❌ NOT SET",
+            password: maskValue(process.env.MYSQLPASSWORD),
+            database: process.env.MYSQLDATABASE || "❌ NOT SET",
+            port: process.env.MYSQLPORT || 3306,
+            ssl: process.env.NODE_ENV === "production" ? "enabled" : "disabled"
+        },
+        security: {
+            jwt_secret: maskValue(process.env.JWT_SECRET),
+            cors_origin: process.env.CORS_ORIGIN || "using defaults"
+        },
+        server: {
+            port: process.env.PORT || 8080,
+            node_env: process.env.NODE_ENV || "development"
+        }
+    });
+});
+
 // --- LOGOUT ---
 app.post("/api/logout", (req, res) => {
     res.status(200).json({ message: "Logged out successfully" });
