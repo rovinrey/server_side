@@ -1,43 +1,54 @@
 require("dotenv").config();
 const mysql = require("mysql2/promise");
 
-const isProduction = process.env.NODE_ENV === "production";
+// Environment configuration
+const ENV = {
+  NODE_ENV: process.env.NODE_ENV || "development",
+  isProduction: process.env.NODE_ENV === "production",
+  isDevelopment: process.env.NODE_ENV === "development",
+};
+
+// Validate required environment variables
+const validateEnv = () => {
+  const required = ENV.isProduction ? ["MYSQLHOST", "MYSQLUSER", "MYSQLDATABASE"] : [];
+  const missing = required.filter(key => !process.env[key]);
+
+  if (missing.length > 0) {
+    console.error(`❌ Missing required environment variables: ${missing.join(", ")}`);
+    process.exit(1);
+  }
+};
+
+validateEnv();
 
 const dbConfig = {
-  // Railway injects MYSQLHOST, local uses fallback
-  host:     process.env.MYSQLHOST     || "localhost",
-  user:     process.env.MYSQLUSER     || "root",
+  host: process.env.MYSQLHOST || "localhost",
+  user: process.env.MYSQLUSER || "root",
   password: process.env.MYSQLPASSWORD || "",
   database: process.env.MYSQLDATABASE || "capstone_db",
-  port:     Number(process.env.MYSQLPORT) || 3306,
+  port: Number(process.env.MYSQLPORT) || 3306,
 
   waitForConnections: true,
-  connectionLimit: isProduction ? 20 : 5,
+  connectionLimit: ENV.isProduction ? 20 : 5,
   queueLimit: 0,
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
 
-  // Railway MySQL requires SSL - must allow self-signed certificates
-  ...(isProduction && {
-    ssl: {
-      rejectUnauthorized: false  // Accept Railway's self-signed certs
-    }
+  ...(ENV.isProduction && {
+    ssl: { rejectUnauthorized: false }
   }),
-  // Local development can use 'Amazon RDS' for testing or skip SSL
-  ...(!isProduction && {
-    ssl: false  // No SSL for local MySQL
+  ...(!ENV.isProduction && {
+    ssl: false
   }),
 };
 
 let pool = null;
-let isInitialized = false;
 
 const getPool = () => {
   if (!pool) {
     console.log("🔧 Creating database pool...");
     pool = mysql.createPool(dbConfig);
 
-    // Handle pool errors
     pool.on("error", (err) => {
       console.error("❌ Pool error:", err.message, err.code);
       if (["PROTOCOL_CONNECTION_LOST", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND"].includes(err.code)) {
@@ -46,36 +57,31 @@ const getPool = () => {
       }
     });
 
-    // Log when connection acquired
-    pool.on("connection", () => {
-      if (process.env.NODE_ENV !== "production") {
+    if (ENV.isDevelopment) {
+      pool.on("connection", () => {
         console.log("📡 Connection acquired from pool");
-      }
-    });
+      });
+    }
   }
   return pool;
 };
 
-// Test connection - logs more details
 const testConnection = async () => {
   try {
     console.log("🔍 Testing database connection...");
     console.log(`   Host: ${dbConfig.host}:${dbConfig.port}`);
     console.log(`   Database: ${dbConfig.database}`);
-    console.log(`   User: ${dbConfig.user}`);
 
     const conn = await getPool().getConnection();
     await conn.ping();
     conn.release();
 
-    isInitialized = true;
     console.log("✅ Database connected successfully");
     return true;
   } catch (error) {
     console.error("❌ Database connection failed:", {
       message: error.message,
       code: error.code,
-      errno: error.errno,
       host: dbConfig.host
     });
     throw error;
@@ -124,7 +130,12 @@ const execute = async (sql, params) => {
   }
 };
 
-module.exports = { query, execute, getConnection, getPool, testConnection };
-
-// Verify exports on load
-console.log("✅ config.js loaded. Exports:", Object.keys(module.exports));
+module.exports = {
+  query,
+  execute,
+  getConnection,
+  getPool,
+  testConnection,
+  ENV,
+  dbConfig
+};
