@@ -5,53 +5,57 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const path = require("path");
 
-const ENV = require("./env.config");
-
 const app = express();
 
 app.set("trust proxy", 1);
 
 // --- CORS CONFIGURATION ---
+const allowedOrigins = [
+    "https://peso-juban.vercel.app", // additional production frontend
+    "http://localhost:5173", // this is for local development (Vite default port)
+    "http://localhost:5174", // additional local port (if needed)
+    "http://localhost:5175", // additional local port (if needed)
+];
+
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (ENV.isDevelopment) {
-      console.log("Incoming Origin:", origin);
-    }
+    origin: (origin, callback) => {
+        console.log("Incoming Origin:", origin);
 
-    // Allow requests with no origin (Postman, curl, mobile apps)
-    if (!origin) return callback(null, true);
+        // Allow requests with no origin (Postman, curl, mobile apps)
+        if (!origin) return callback(null, true);
 
-    if (ENV.CORS_ORIGINS.includes(origin)) {
-      return callback(null, true);
-    }
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
 
-    const err = new Error("CORS: Origin not allowed");
-    return callback(err);
-  },
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-  optionsSuccessStatus: 200,
+        console.error(`❌ CORS blocked: ${origin}`);
+        return callback(new Error("Not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+    optionsSuccessStatus: 200,
 };
 
 app.use(cors(corsOptions));
+
 app.options("*", cors(corsOptions));
 
 // --- SECURITY ---
 app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-  })
+    helmet({
+        crossOriginResourcePolicy: { policy: "cross-origin" },
+    }),
 );
 
-// --- RATE LIMIT ---
+// --- RATE LIMIT (skip OPTIONS) ---
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 1000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => req.method === "OPTIONS",
-  message: { message: "Too many requests, please try again later." },
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.method === "OPTIONS", // 🔥 IMPORTANT FIX
+    message: { message: "Too many requests, please try again later." },
 });
 
 app.use("/api/", generalLimiter);
@@ -60,13 +64,11 @@ app.use("/api/", generalLimiter);
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
-// --- DEBUG LOGGER (development only) ---
-if (ENV.isDevelopment) {
-  app.use((req, res, next) => {
+// --- DEBUG LOGGER (optional but useful) ---
+app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
     next();
-  });
-}
+});
 
 // --- ROUTES ---
 app.use("/api/auth", require("./src/routes/auth.routes.js"));
@@ -78,46 +80,47 @@ app.use("/api/attendance", require("./src/routes/attendance.routes.js"));
 app.use("/api/notifications", require("./src/routes/notification.routes.js"));
 app.use("/api/payroll", require("./src/routes/payroll.routes.js"));
 app.use("/api/reports", require("./src/routes/reports.routes.js"));
-app.use("/api/spes-documents", require("./src/routes/spes.documents.routes.js"));
+app.use(
+    "/api/spes-documents",
+    require("./src/routes/spes.documents.routes.js"),
+);
 app.use("/api/documents", require("./src/routes/documents.routes.js"));
-app.use("/api/admin/documents", require("./src/routes/admin.documents.routes.js"));
+app.use(
+    "/api/admin/documents",
+    require("./src/routes/admin.documents.routes.js"),
+);
 
 // --- STATIC FILES ---
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // --- HEALTH CHECK ---
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", time: new Date().toISOString() });
+    res.json({ status: "ok", time: new Date().toISOString() });
 });
 
 // --- LOGOUT ---
 app.post("/api/logout", (req, res) => {
-  res.status(200).json({ message: "Logged out successfully" });
+    res.status(200).json({ message: "Logged out successfully" });
 });
 
-// --- GLOBAL ERROR HANDLER ---
+// --- GLOBAL ERROR HANDLER (VERY IMPORTANT) ---
 app.use((err, req, res, next) => {
-  if (ENV.isDevelopment) {
     console.error("🔥 ERROR:", err.message);
-  }
 
-  if (err.message.includes("CORS")) {
-    return res.status(403).json({
-      message: "CORS Error: Origin not allowed",
+    if (err.message.includes("CORS")) {
+        return res.status(403).json({
+            message: "CORS Error: Origin not allowed",
+        });
+    }
+
+    res.status(500).json({
+        message: "Internal Server Error",
     });
-  }
-
-  res.status(500).json({
-    message: "Internal Server Error",
-  });
 });
 
 // --- START SERVER ---
-app.listen(ENV.PORT, () => {
-  console.log(`🚀 Server running on port ${ENV.PORT}`);
-  console.log(`📍 Environment: ${ENV.NODE_ENV}`);
-  if (ENV.isDevelopment) {
-    console.log("✅ Allowed Origins:", ENV.CORS_ORIGINS);
-  }
-});
+const PORT = process.env.PORT || 8080;
 
+app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+});
