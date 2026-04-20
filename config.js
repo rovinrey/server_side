@@ -12,39 +12,68 @@ const dbConfig = {
   port:     Number(process.env.MYSQLPORT) || 3306,
 
   waitForConnections: true,
-  connectionLimit: isProduction ? 20 : 5,  // more headroom on Railway
+  connectionLimit: isProduction ? 20 : 5,
   queueLimit: 0,
-  enableKeepAlive: true,       // prevents idle connection drops
+  enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
 
-  // Railway MySQL requires SSL in production
+  // Railway MySQL requires SSL - use rejectUnauthorized: false for self-signed certs
   ...(isProduction && {
-    ssl: { rejectUnauthorized: false },
+    ssl: "Amazon RDS"  // Railway uses AWS RDS MySQL
   }),
 };
 
 let pool = null;
+let isInitialized = false;
 
 const getPool = () => {
   if (!pool) {
+    console.log("🔧 Creating database pool...");
     pool = mysql.createPool(dbConfig);
 
+    // Handle pool errors
     pool.on("error", (err) => {
-      console.error("❌ Pool error:", err.message);
-      if (["PROTOCOL_CONNECTION_LOST", "ECONNRESET", "ETIMEDOUT"].includes(err.code)) {
-        pool = null; // force re-init on next call
+      console.error("❌ Pool error:", err.message, err.code);
+      if (["PROTOCOL_CONNECTION_LOST", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND"].includes(err.code)) {
+        console.log("⚠️  Resetting pool due to connection error");
+        pool = null;
+      }
+    });
+
+    // Log when connection acquired
+    pool.on("connection", () => {
+      if (process.env.NODE_ENV !== "production") {
+        console.log("📡 Connection acquired from pool");
       }
     });
   }
   return pool;
 };
 
-// Ping on startup to catch misconfig early
+// Test connection - logs more details
 const testConnection = async () => {
-  const conn = await getPool().getConnection();
-  await conn.ping();
-  conn.release();
-  console.log("✅ Database connected");
+  try {
+    console.log("🔍 Testing database connection...");
+    console.log(`   Host: ${dbConfig.host}:${dbConfig.port}`);
+    console.log(`   Database: ${dbConfig.database}`);
+    console.log(`   User: ${dbConfig.user}`);
+
+    const conn = await getPool().getConnection();
+    await conn.ping();
+    conn.release();
+
+    isInitialized = true;
+    console.log("✅ Database connected successfully");
+    return true;
+  } catch (error) {
+    console.error("❌ Database connection failed:", {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      host: dbConfig.host
+    });
+    throw error;
+  }
 };
 
 const query = async (sql, params) => {
@@ -70,7 +99,7 @@ const getConnection = async () => {
   }
 };
 
-// Compatibility method: execute query through pool (for services expecting db.execute)
+// Compatibility method: execute query through pool
 const execute = async (sql, params) => {
   let connection;
   try {
