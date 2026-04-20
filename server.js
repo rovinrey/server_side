@@ -3,19 +3,25 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const path = require("path");   
+const path = require("path");
+const { testConnection } = require("./config");
 
 const app = express();
 
 app.set("trust proxy", 1);
 
 // --- CORS CONFIGURATION ---
-const allowedOrigins = [
-    "https://peso-juban.vercel.app", // additional production frontend
-    "http://localhost:5173", // this is for local development (Vite default port)
-    "http://localhost:5174", // additional local port (if needed)
-    "http://localhost:5175", // additional local port (if needed)
+// Read from environment variable or use defaults
+const defaultOrigins = [
+    "https://peso-juban.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
 ];
+
+const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(",").map(origin => origin.trim())
+    : defaultOrigins;
 
 const corsOptions = {
     origin: (origin, callback) => {
@@ -45,6 +51,12 @@ app.options("*", cors(corsOptions));
 app.use(
     helmet({
         crossOriginResourcePolicy: { policy: "cross-origin" },
+        // Enable HSTS for HTTPS enforcement in production
+        hsts: process.env.NODE_ENV === "production" ? {
+            maxAge: 31536000, // 1 year
+            includeSubDomains: true,
+            preload: true
+        } : false
     }),
 );
 
@@ -130,7 +142,9 @@ const PORT = process.env.PORT || 8080;
 
 const startServer = async () => {
     try {
-       
+        // Test database connection before starting server
+        await testConnection();
+
         app.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
             console.log("✅ Allowed Origins:", allowedOrigins);

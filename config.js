@@ -70,4 +70,23 @@ const getConnection = async () => {
   }
 };
 
-module.exports = { query, getConnection, getPool, testConnection };
+// Compatibility method: execute query through pool (for services expecting db.execute)
+const execute = async (sql, params) => {
+  let connection;
+  try {
+    connection = await getConnection();
+    const result = await connection.execute(sql, params);
+    return result;
+  } catch (error) {
+    console.error("❌ Execute error:", {
+      message: error.message,
+      code: error.code,
+      sql: sql.substring(0, 100),
+    });
+    throw error;
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+module.exports = { query, execute, getConnection, getPool, testConnection };
