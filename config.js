@@ -17,9 +17,15 @@ const dbConfig = {
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
 
-  // Railway MySQL requires SSL - use rejectUnauthorized: false for self-signed certs
+  // Railway MySQL requires SSL - must allow self-signed certificates
   ...(isProduction && {
-    ssl: "Amazon RDS"  // Railway uses AWS RDS MySQL
+    ssl: {
+      rejectUnauthorized: false  // Accept Railway's self-signed certs
+    }
+  }),
+  // Local development can use 'Amazon RDS' for testing or skip SSL
+  ...(!isProduction && {
+    ssl: false  // No SSL for local MySQL
   }),
 };
 
