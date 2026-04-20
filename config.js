@@ -119,3 +119,6 @@ const execute = async (sql, params) => {
 };
 
 module.exports = { query, execute, getConnection, getPool, testConnection };
+
+// Verify exports on load
+console.log("✅ config.js loaded. Exports:", Object.keys(module.exports));

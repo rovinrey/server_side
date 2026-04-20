@@ -2,6 +2,16 @@
 const jwt = require('jsonwebtoken');
 const db = require('../../config');
 
+// Debug: verify db object
+if (typeof db.execute !== 'function') {
+    console.error('❌ CRITICAL: db.execute is not a function!');
+    console.error('   db object keys:', Object.keys(db));
+    console.error('   typeof db.execute:', typeof db.execute);
+    console.error('   db object:', db);
+} else {
+    console.log('✅ db.execute is available');
+}
+
 const SALT_ROUNDS = 12;
 const TOKEN_EXPIRY = '8h';
 
