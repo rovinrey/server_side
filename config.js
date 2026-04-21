@@ -1,37 +1,49 @@
 const mysql = require('mysql2/promise');
-const path = require('path');
-const fs = require('fs');
 require('dotenv').config();
 
-// local development configuration
-const connection = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_DATABASE || 'capstone_db',
-});
+// Determine environment
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const isProduction = NODE_ENV === 'production';
 
-connection.getConnection((err, connection) => {
-    if (err) {
+let pool;
+
+if (isProduction) {
+    // Production: Use Railway environment variables
+    pool = mysql.createPool({
+        host: process.env.MYSQLHOST,
+        user: process.env.MYSQLUSER,
+        password: process.env.MYSQLPASSWORD || '',
+        database: process.env.MYSQLDATABASE,
+        port: parseInt(process.env.MYSQLPORT || '3306', 10),
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+    });
+
+    console.log('✅ [PRODUCTION] Database pool connected');
+} else {
+    // Development: Use local configuration
+    pool = mysql.createPool({
+        host: process.env.DB_HOST || 'localhost',
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_DATABASE || 'capstone_db',
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+    });
+
+    console.log('✅ [DEVELOPMENT] Database pool connected');
+}
+
+// Test connection
+pool.getConnection()
+    .then((connection) => {
+        connection.release();
+        console.log('✅ Database connection verified');
+    })
+    .catch((err) => {
         console.error('❌ Database connection failed:', err.message);
-        throw err;
-    }
-    console.log('✅ Database connection established');
-    connection.release();
-});
+    });
 
-module.exports = connection;
-
-const urlDB = `mysql://${process.env.MYSQLUSER}:${process.env.MYSQLPASSWORD}@${process.env.MYSQLHOST}:3306/${process.env.MYSQLDATABASE}`;
-// database configuration for production deployment on Railway. Do not use in local development.
-const productionConnection = mysql.createConnection(urlDB);
-
-productionConnection.getConnection((err, connection) => {
-    if (err) {
-        console.error('❌ Production database connection failed:', err.message);
-        throw err;
-    }   
-    console.log('✅ Production database connection established');
-    connection.release();
-});
-module.exports = productionConnection;
+module.exports = pool;
