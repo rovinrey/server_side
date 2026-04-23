@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+/**
+ * TUPAD AND PANGKABUHAYAN MANAGEMENT SYSTEM
+ * Admin Account Initialization Script
+ */
+
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
 const readline = require('readline');
@@ -7,9 +12,10 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+// The lock file prevents the script from being run multiple times after success
 const LOCK_FILE = path.join(__dirname, '.admin_created');
 
-// Color codes
+// Terminal color formatting
 const colors = {
     reset: '\x1b[0m',
     red: '\x1b[31m',
@@ -24,7 +30,9 @@ const rl = readline.createInterface({
     output: process.stdout,
 });
 
-// Helper for masking password input
+/**
+ * Masks password input in the terminal with asterisks
+ */
 function promptPassword(question) {
     return new Promise((resolve) => {
         const stdin = process.stdin;
@@ -33,6 +41,7 @@ function promptPassword(question) {
         stdin.resume();
         stdin.setRawMode(true);
         let password = '';
+        
         stdin.on('data', function onData(char) {
             char = char.toString();
             switch (char) {
@@ -43,7 +52,9 @@ function promptPassword(question) {
                     stdin.removeListener('data', onData);
                     resolve(password.trim());
                     break;
-                case '\u0003': process.exit(); break;
+                case '\u0003': // Ctrl+C
+                    process.exit(); 
+                    break;   
                 case '\x7f': // Backspace
                     if (password.length > 0) {
                         password = password.slice(0, -1);
@@ -52,7 +63,7 @@ function promptPassword(question) {
                     break;
                 default:
                     password += char;
-                    stdout.write('*'); // Mask with asterisks
+                    stdout.write('*'); 
                     break;
             }
         });
@@ -64,64 +75,71 @@ function prompt(question) {
 }
 
 async function createAdmin() {
-    // 1. RUN-ONCE CHECK
+    // 1. PRE-FLIGHT LOCK CHECK
     if (fs.existsSync(LOCK_FILE)) {
-        console.error(`\n${colors.red}🛑 ACCESS DENIED: Admin setup has already been completed.${colors.reset}`);
-        console.log(`${colors.yellow}To re-run, manually delete the file: ${LOCK_FILE}${colors.reset}\n`);
+        console.error(`\n${colors.red}${colors.bold}🛑 ACCESS DENIED: Admin setup is locked.${colors.reset}`);
+        console.log(`${colors.yellow}Setup has already been completed. To re-run, delete: ${LOCK_FILE}${colors.reset}\n`);
         process.exit(0);
     }
 
     let connection;
     try {
-        const mysqlUrl = process.env.MYSQL_URL;
-        let dbConfig;
-
-        if (mysqlUrl) {
-            const url = new URL(mysqlUrl);
-            dbConfig = {
-                host: url.hostname,
-                user: url.username,
-                password: url.password,
-                database: url.pathname.replace('/', ''),
-                port: url.port || 3306
-            };
-        } else {
-            dbConfig = {
-                host: process.env.DB_HOST || 'localhost',
-                user: process.env.DB_USER || 'root',
-                password: process.env.DB_PASSWORD || '',
-                database: process.env.DB_NAME || 'capstone_db',
-                port: process.env.DB_PORT || 3306
-            };
-        }
+        // DB Configuration (Supports Connection String or Individual Variables)
+        const dbConfig = process.env.MYSQL_URL || {
+            host: process.env.MYSQLHOST || 'localhost',
+            user: process.env.MYSQLUSER || 'root',
+            password: process.env.MYSQLPASSWORD || '',
+            database: process.env.MYSQLDATABASE || 'capstone_db',
+            port: process.env.MYSQLPORT || 3306
+        };
 
         connection = await mysql.createConnection(dbConfig);
         
-        const email = await prompt(`${colors.cyan}Admin Email:${colors.reset} `);
+        console.log(`\n${colors.bold}${colors.cyan}--- TUPAD SYSTEM ADMIN INITIALIZATION ---${colors.reset}\n`);
+
+        // Gather Admin Information
+        const name = await prompt(`${colors.cyan}Full Name [System Admin]:${colors.reset} `) || 'System Administrator';
+        const email = await prompt(`${colors.cyan}Email Address:${colors.reset} `);
+        const phone = await prompt(`${colors.cyan}Phone Number:${colors.reset} `);
         
-        // Final sanity check: Does an admin exist in DB?
+        if (!email) {
+            throw new Error("Email is required.");
+        }
+
+        // 2. DATABASE INTEGRITY CHECK
         const [rows] = await connection.execute('SELECT user_id FROM users WHERE role = "admin" LIMIT 1');
         if (rows.length > 0) {
-            console.log(`${colors.red}❌ An admin account already exists in the database.${colors.reset}`);
-            fs.writeFileSync(LOCK_FILE, `Locked on ${new Date().toISOString()}`);
+            console.log(`${colors.yellow}⚠️ An admin already exists in the database. Locking script...${colors.reset}`);
+            fs.writeFileSync(LOCK_FILE, `Locked on ${new Date().toISOString()} - Admin already present.`);
             process.exit(1);
         }
 
-        const password = await promptPassword(`${colors.cyan}Admin Password:${colors.reset} `);
+        const password = await promptPassword(`${colors.cyan}Enter Admin Password:${colors.reset} `);
+        if (password.length < 6) {
+            throw new Error("Password must be at least 6 characters long.");
+        }
+
         const hashedPassword = await bcrypt.hash(password, 12);
 
+        // 3. EXECUTE INSERT
+        // Matches schema: user_name, email, phone, password, role
         await connection.execute(
-            'INSERT INTO users (user_name, email, password, role, created_at) VALUES (?, ?, ?, ?, NOW())',
-            ['System Administrator', email, hashedPassword, 'admin']
+            'INSERT INTO users (user_name, email, phone, password, role) VALUES (?, ?, ?, ?, ?)',
+            [name, email, phone || null, hashedPassword, 'admin']
         );
 
-        // 2. CREATE LOCKFILE
+        // 4. FINAL LOCKING
         fs.writeFileSync(LOCK_FILE, `Admin created: ${email}\nDate: ${new Date().toISOString()}`);
         
-        console.log(`\n${colors.green}✅ Admin created and script locked.${colors.reset}\n`);
+        console.log(`\n${colors.green}${colors.bold}✅ SUCCESS: Admin account created.${colors.reset}`);
+        console.log(`${colors.green}The setup script is now locked.${colors.reset}\n`);
 
     } catch (error) {
-        console.error(`${colors.red}Error:${colors.reset}`, error.message);
+        if (error.code === 'ER_DUP_ENTRY') {
+            console.error(`\n${colors.red}❌ ERROR: Email or Phone already exists in the database.${colors.reset}\n`);
+        } else {
+            console.error(`\n${colors.red}❌ ERROR:${colors.reset}`, error.message, "\n");
+        }
     } finally {
         if (connection) await connection.end();
         rl.close();
