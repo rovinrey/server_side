@@ -2,9 +2,11 @@
 const jwt = require('jsonwebtoken');
 
 module.exports = (req, res, next) => {
-   
+    
+    // Allow preflight requests to pass through without authentication
     if (req.method === 'OPTIONS') return next();
 
+    // Expecting header format: "Authorization: Bearer <token>"
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {

@@ -97,6 +97,7 @@ const signup = async (body) => {
 
 // --- LOGIN FUNCTION ---
 const login = async (body) => {
+    
     const rawIdentifier = body.identifier || body.email || body.phone || null;
     const identifier = rawIdentifier ? String(rawIdentifier).trim() : null;
     const password = body.password || null;
