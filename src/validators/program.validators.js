@@ -1,3 +1,4 @@
+const db = require('../../config');
 const { safeTrim, safeInt, safeFloat } = require('./common.validators');
 
 const VALID_STATUSES = ['ongoing', 'active', 'pending', 'completed', 'cancelled'];

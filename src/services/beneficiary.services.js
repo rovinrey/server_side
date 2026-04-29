@@ -169,6 +169,7 @@ exports.getRecentApplications = async (limit = 10, userId = null) => {
   return [rows];
 };
 
+// get all pending applications (for admin approval queue)
 exports.getPendingApplications = async (programType = null) => {
   const params = [];
   let whereClause = "WHERE a.status = 'Pending'";
@@ -202,6 +203,7 @@ exports.getPendingApplications = async (programType = null) => {
   return [rows];
 };
 
+// get applications by status (for admin management view)
 exports.getApplicationsByStatus = async (status, programType = null) => {
   const params = [status];
   let whereClause = 'WHERE a.status = ?';
@@ -236,6 +238,7 @@ exports.getApplicationsByStatus = async (status, programType = null) => {
   return [rows];
 };
 
+// approve application of the benficiary
 exports.approveApplication = async (id) => {
   const connection = await db.getConnection();
   try {
@@ -243,7 +246,7 @@ exports.approveApplication = async (id) => {
 
     // 1. Fetch the application to get user_id and program_type
     const [appRows] = await connection.execute(
-      `SELECT application_id, user_id, program_type, program_id, status
+      `SELECT application_id, user_id, program_type, status
        FROM applications WHERE application_id = ?`,
       [id]
     );
@@ -276,52 +279,6 @@ exports.approveApplication = async (id) => {
         [application.user_id]
       );
     }
-
-    // 4. Check slot availability and increment filled slot using program_id
-    if (application.program_id) {
-      const [slotResult] = await connection.execute(
-        `UPDATE programs
-         SET filled = filled + 1
-         WHERE program_id = ?
-           AND status IN ('active', 'ongoing')
-           AND filled < slots`,
-        [application.program_id]
-      );
-      if (slotResult.affectedRows === 0) {
-        const [progCheck] = await connection.execute(
-          `SELECT program_id, slots, filled FROM programs WHERE program_id = ?`,
-          [application.program_id]
-        );
-        if (progCheck.length > 0 && progCheck[0].filled >= progCheck[0].slots) {
-          throw new Error(`Cannot approve: program has no available slots (${progCheck[0].filled}/${progCheck[0].slots})`);
-        }
-      }
-    } else {
-      // Legacy fallback for applications without program_id
-      const [slotResult] = await connection.execute(
-        `UPDATE programs
-         SET filled = filled + 1
-         WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
-           AND status IN ('active', 'ongoing')
-           AND filled < slots
-         ORDER BY start_date DESC
-         LIMIT 1`,
-        [application.program_type]
-      );
-      if (slotResult.affectedRows === 0) {
-        const [progCheck] = await connection.execute(
-          `SELECT program_id, slots, filled FROM programs
-           WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
-             AND status IN ('active', 'ongoing')
-           ORDER BY start_date DESC LIMIT 1`,
-          [application.program_type]
-        );
-        if (progCheck.length > 0 && progCheck[0].filled >= progCheck[0].slots) {
-          throw new Error(`Cannot approve: ${(application.program_type || '').toUpperCase()} program has no available slots (${progCheck[0].filled}/${progCheck[0].slots})`);
-        }
-      }
-    }
-
     // 5. Send approval notification to the beneficiary
     const programLabel = (application.program_type || '').toUpperCase().replace('_', ' ');
     await connection.execute(
@@ -345,6 +302,7 @@ exports.approveApplication = async (id) => {
   }
 };
 
+// reject application of the benficiary
 exports.rejectApplication = async (id, reason) => {
   const connection = await db.getConnection();
   try {
@@ -414,6 +372,7 @@ exports.rejectApplication = async (id, reason) => {
   }
 };
 
+// get the latest application status for each program of a beneficiary
 exports.getUserApplicationStatus = async (userId) => {
   const query = `
     SELECT
@@ -451,6 +410,7 @@ exports.getUserApplicationStatus = async (userId) => {
   };
 };
 
+// expoert applications for admin management view
 exports.getApplicationsForExport = async (programType = null, status = null) => {
   const params = [];
   const conditions = [];
@@ -1150,114 +1110,153 @@ exports.resolveDuplicate = async (applicationId, action) => {
   return exports.unmarkDuplicate(applicationId);
 };
 
-// ── Duplicate Beneficiaries ──────────────────────────
+// ── Enrollment Management ──────────────────────────
 /**
- * Detect duplicate beneficiary records with similar names & birth dates.
- * Groups beneficiaries that share (lowercase first_name, lowercase last_name, birth_date).
+ * Enroll an approved beneficiary into a specific program instance
  */
-exports.detectDuplicateBeneficiaries = async () => {
-  const query = `
-    SELECT
-      b.beneficiary_id,
-      b.user_id,
-      b.first_name,
-      b.middle_name,
-      b.last_name,
-      b.extension_name,
-      b.birth_date,
-      b.gender,
-      b.civil_status,
-      b.contact_number,
-      b.address,
-      b.is_active,
-      u.email,
-      u.user_name
-    FROM beneficiaries b
-    LEFT JOIN users u ON u.user_id = b.user_id
-    WHERE EXISTS (
-      SELECT 1 FROM beneficiaries b2
-      WHERE b2.beneficiary_id != b.beneficiary_id
-        AND LOWER(TRIM(b2.first_name)) = LOWER(TRIM(b.first_name))
-        AND LOWER(TRIM(b2.last_name)) = LOWER(TRIM(b.last_name))
-    )
-    ORDER BY LOWER(b.last_name), LOWER(b.first_name), b.birth_date
-  `;
-  const [rows] = await db.execute(query);
-  return rows;
-};
+// ── ENROLL BENEFICIARY ─────────────────────────────
+exports.enrollBeneficiary = async (applicationId, programId) => {
+  const connection = await db.getConnection();
 
-/**
- * Delete a beneficiary record (admin action for resolving duplicates).
- */
-exports.deleteBeneficiaryById = async (beneficiaryId) => {
-  // Remove related attendance first
-  await db.execute(
-    'DELETE FROM attendance WHERE beneficiary_id = ?',
-    [beneficiaryId]
-  );
-  const [result] = await db.execute(
-    'DELETE FROM beneficiaries WHERE beneficiary_id = ?',
-    [beneficiaryId]
-  );
-  return result;
-};
+  try {
+    await connection.beginTransaction();
 
-// ── Duplicate Attendance ─────────────────────────────
-/**
- * Detect attendance records that might be duplicates:
- * Same beneficiary (by name+birth_date across user accounts) attending on the same date.
- */
-exports.detectDuplicateAttendance = async () => {
-  const query = `
-    SELECT
-      ar.attendance_id,
-      ar.user_id,
-      ar.program_type,
-      ar.attendance_date,
-      ar.time_in,
-      ar.time_out,
-      ar.status AS attendance_status,
-      COALESCE(
-        NULLIF(TRIM(CONCAT_WS(' ', b.first_name, b.middle_name, b.last_name)), ''),
-        u.user_name
-      ) AS beneficiary_name,
-      b.first_name,
-      b.last_name,
-      b.birth_date,
-      u.email
-    FROM attendance_records ar
-    LEFT JOIN users u ON u.user_id = ar.user_id
-    LEFT JOIN beneficiaries b ON b.user_id = ar.user_id
-    WHERE EXISTS (
-      SELECT 1
-      FROM attendance_records ar2
-      LEFT JOIN beneficiaries b2 ON b2.user_id = ar2.user_id
-      WHERE ar2.attendance_id != ar.attendance_id
-        AND ar2.attendance_date = ar.attendance_date
-        AND (
-          ar2.user_id = ar.user_id
-          OR (
-            b2.beneficiary_id IS NOT NULL AND b.beneficiary_id IS NOT NULL
-            AND LOWER(TRIM(b2.first_name)) = LOWER(TRIM(b.first_name))
-            AND LOWER(TRIM(b2.last_name)) = LOWER(TRIM(b.last_name))
-            AND b2.birth_date = b.birth_date
-            AND ar2.user_id != ar.user_id
-          )
-        )
-    )
-    ORDER BY ar.attendance_date DESC, COALESCE(b.last_name, u.user_name)
-  `;
-  const [rows] = await db.execute(query);
-  return rows;
-};
+    // 1. Get application (includes user_id + program_type)
+    const [appRows] = await connection.execute(
+      `SELECT application_id, user_id, status, program_type 
+       FROM applications 
+       WHERE application_id = ? 
+       FOR UPDATE`,
+      [applicationId]
+    );
 
-/**
- * Delete an attendance record by ID.
- */
-exports.deleteAttendanceRecord = async (attendanceId) => {
-  const [result] = await db.execute(
-    'DELETE FROM attendance_records WHERE attendance_id = ?',
-    [attendanceId]
-  );
-  return result;
+    if (!appRows.length) {
+      throw new Error('Application not found');
+    }
+
+    const application = appRows[0];
+
+    if (application.status !== 'Approved') {
+      throw new Error('Application must be approved to enroll');
+    }
+
+    const userId = application.user_id;
+    const programType = application.program_type;
+
+    // ─────────────────────────────────────────────
+    // RULE 1: Only 1 ACTIVE program per user
+    // ─────────────────────────────────────────────
+    const [activeEnrollments] = await connection.execute(
+      `SELECT pe.enrollee_id
+       FROM program_enrollees pe
+       JOIN applications a ON pe.application_id = a.application_id
+       WHERE a.user_id = ?
+       AND pe.current_status = 'Active'`,
+      [userId]
+    );
+
+    if (activeEnrollments.length > 0) {
+      throw new Error('Beneficiary already enrolled in an active program');
+    }
+
+    // ─────────────────────────────────────────────
+    // RULE 2: TUPAD 6-MONTH COOLDOWN
+    // ─────────────────────────────────────────────
+    if (programType === 'tupad') {
+      const [tupadHistory] = await connection.execute(
+        `SELECT pe.enrollment_date
+         FROM program_enrollees pe
+         JOIN applications a ON pe.application_id = a.application_id
+         WHERE a.user_id = ?
+         AND a.program_type = 'tupad'
+         ORDER BY pe.enrollment_date DESC
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (tupadHistory.length > 0) {
+        const lastDate = new Date(tupadHistory[0].enrollment_date);
+        const now = new Date();
+
+        const diffMonths =
+          (now.getFullYear() - lastDate.getFullYear()) * 12 +
+          (now.getMonth() - lastDate.getMonth());
+
+        if (diffMonths < 6) {
+          throw new Error(
+            `TUPAD cooldown active. Please wait ${6 - diffMonths} more month(s)`
+          );
+        }
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // 2. Check program exists
+    // ─────────────────────────────────────────────
+    const [progRows] = await connection.execute(
+      `SELECT program_id, slots, filled 
+       FROM programs 
+       WHERE program_id = ? 
+       FOR UPDATE`,
+      [programId]
+    );
+
+    if (!progRows.length) {
+      throw new Error('Program not found');
+    }
+
+    const { slots, filled } = progRows[0];
+
+    if (filled >= slots) {
+      throw new Error('Program has no available slots');
+    }
+
+    // ─────────────────────────────────────────────
+    // 3. Prevent duplicate enrollment in same program
+    // ─────────────────────────────────────────────
+    const [existing] = await connection.execute(
+      `SELECT enrollee_id 
+       FROM program_enrollees 
+       WHERE application_id = ? AND program_id = ?`,
+      [applicationId, programId]
+    );
+
+    if (existing.length > 0) {
+      throw new Error('Already enrolled in this program');
+    }
+
+    // ─────────────────────────────────────────────
+    // 4. Insert enrollment
+    // ─────────────────────────────────────────────
+    const [result] = await connection.execute(
+      `INSERT INTO program_enrollees 
+       (program_id, application_id, enrollment_date, current_status)
+       VALUES (?, ?, NOW(), 'Active')`,
+      [programId, applicationId]
+    );
+
+    // ─────────────────────────────────────────────
+    // 5. Update slots
+    // ─────────────────────────────────────────────
+    await connection.execute(
+      `UPDATE programs 
+       SET filled = filled + 1 
+       WHERE program_id = ?`,
+      [programId]
+    );
+
+    await connection.commit();
+
+    return {
+      enrolleeId: result.insertId,
+      applicationId,
+      programId
+    };
+
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
 };

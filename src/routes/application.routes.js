@@ -19,22 +19,24 @@ router.get('/reports/tupad-monthly', authMiddleware, applicationController.getTu
 router.get('/settings/daily-wage', authMiddleware, applicationController.getDailyWage);
 router.put('/settings/daily-wage', authMiddleware, requireAdmin, applicationController.updateDailyWage);
 
-// If you want the full URL to be /api/forms/apply/tupad
 // You only put /apply/tupad here:
 router.post('/apply/tupad', authMiddleware, validateTupad, applicationController.applyToTupad);
 router.put('/approved/application/tupad/:id', authMiddleware, applicationController.approvedTupadApplication);
 
 // SPES route
 router.post('/apply/spes', authMiddleware, validatedSpes, applicationController.applyToSpes);
+router.post('/apply/spes/complete', authMiddleware, applicationController.submitCompleteSPESApplication);
 router.post('/spes', authMiddleware, applicationController.createSpesDetails);
 router.get('/spes/:applicationId', authMiddleware, applicationController.getSpesDetails);
 router.put('/spes/:detailId', authMiddleware, applicationController.updateSpesDetails);
 
 // DILP route
 router.post('/apply/dilp', authMiddleware, validateDilp, applicationController.applyToDilp);
+router.post('/apply/dilp/complete', authMiddleware, applicationController.submitCompleteDILPApplication);
 
 // GIP route
 router.post('/apply/gip', authMiddleware, validateGip, applicationController.applyToGip);
+router.post('/apply/gip/complete', authMiddleware, applicationController.submitCompleteGIPApplication);
 
 // Job Seekers route
 router.post('/apply/job_seekers', authMiddleware, validateJobSeekers, applicationController.applyToJobSeekers);
@@ -44,17 +46,17 @@ router.get('/recent', authMiddleware, applicationController.getRecentApplication
 router.get('/status', authMiddleware, applicationController.getApplicationStatus);
 
 // Application approval routes
-router.get('/applications/pending', authMiddleware, applicationController.getPendingApplications);
-router.get('/applications', authMiddleware, applicationController.getApplicationsByStatus);
-router.put('/applications/:id/approve', authMiddleware, requireAdminOrStaff, applicationController.approveApplication);
-router.put('/applications/:id/reject', authMiddleware, requireAdminOrStaff, applicationController.rejectApplication);
+router.get('/pending', authMiddleware, applicationController.getPendingApplications);
+router.get('/', authMiddleware, applicationController.getApplicationsByStatus);
+router.put('/:id/approve', authMiddleware, requireAdminOrStaff, applicationController.approveApplication);
+router.put('/:id/reject', authMiddleware, requireAdminOrStaff, applicationController.rejectApplication);
 
 // Admin: TUPAD details CRUD
 router.get('/tupad/:applicationId', authMiddleware, applicationController.getTupadDetails);
 router.put('/tupad/:detailId', authMiddleware, applicationController.updateTupadDetails);
 
 // Admin: Update beneficiary personal info linked to an application
-router.put('/applications/:applicationId/beneficiary', authMiddleware, applicationController.updateApplicationBeneficiary);
+router.put('/:applicationId/beneficiary', authMiddleware, applicationController.updateApplicationBeneficiary);
 
 // Admin: Annex D export
 router.get('/annex-d/export', authMiddleware, applicationController.exportAnnexD);

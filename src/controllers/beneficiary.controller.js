@@ -234,3 +234,101 @@ exports.deleteBeneficiary = async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 };
+
+// =============================================
+// Enrollment endpoints
+// =============================================
+
+// Enroll an approved beneficiary into a program
+exports.enrollBeneficiary = async (req, res) => {
+    try {
+        const { applicationId, programId } = req.body;
+
+        if (!applicationId || !programId) {
+            return res.status(400).json({ message: 'applicationId and programId are required' });
+        }
+
+        const result = await beneficiaryService.enrollBeneficiary(applicationId, programId);
+        res.status(201).json({
+            message: 'Beneficiary enrolled successfully',
+            enrolleeId: result.enrolleeId,
+            applicationId: result.applicationId,
+            programId: result.programId
+        });
+    } catch (err) {
+        console.error('ENROLLMENT ERROR:', err.message);
+        if (err.message.includes('must be approved')) {
+            return res.status(400).json({ message: err.message });
+        }
+        if (err.message.includes('already enrolled')) {
+            return res.status(409).json({ message: err.message });
+        }
+        if (err.message.includes('no available slots')) {
+            return res.status(400).json({ message: err.message });
+        }
+        if (err.message === 'Program not found' || err.message === 'Application not found') {
+            return res.status(404).json({ message: err.message });
+        }
+        res.status(500).json({ message: err.message });
+    }
+};
+
+// Get enrollment status for a beneficiary
+exports.getEnrollmentStatus = async (req, res) => {
+    try {
+        const { applicationId } = req.params;
+        if (!applicationId) {
+            return res.status(400).json({ message: 'applicationId is required' });
+        }
+
+        const enrollment = await beneficiaryService.getEnrollmentStatus(applicationId);
+        if (!enrollment) {
+            return res.status(404).json({ message: 'No enrollment found for this application' });
+        }
+
+        res.json(enrollment);
+    } catch (err) {
+        console.error('GET ENROLLMENT ERROR:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+};
+
+// Get all enrollees for a program
+exports.getProgramEnrollees = async (req, res) => {
+    try {
+        const { programId } = req.params;
+        if (!programId) {
+            return res.status(400).json({ message: 'programId is required' });
+        }
+
+        const enrollees = await beneficiaryService.getProgramEnrollees(programId);
+        res.json(enrollees);
+    } catch (err) {
+        console.error('GET PROGRAM ENROLLEES ERROR:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+};
+
+// Update enrollment status
+exports.updateEnrollmentStatus = async (req, res) => {
+    try {
+        const { enrolleeId } = req.params;
+        const { status } = req.body;
+
+        if (!enrolleeId || !status) {
+            return res.status(400).json({ message: 'enrolleeId and status are required' });
+        }
+
+        const result = await beneficiaryService.updateEnrollmentStatus(enrolleeId, status);
+        res.json({ message: `Enrollment status updated to ${status}`, result });
+    } catch (err) {
+        console.error('UPDATE ENROLLMENT STATUS ERROR:', err.message);
+        if (err.message.includes('Invalid status')) {
+            return res.status(400).json({ message: err.message });
+        }
+        if (err.message === 'Enrollment record not found') {
+            return res.status(404).json({ message: err.message });
+        }
+        res.status(500).json({ message: err.message });
+    }
+};

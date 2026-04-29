@@ -35,4 +35,13 @@ router.put('/:documentId', authMiddleware, documentsUpload.single('document'), a
 // PUT replace a SPES document
 router.put('/spes/:applicationId/:fieldId', authMiddleware, spesUpload.single('document'), adminDocsController.replaceSpesDocument);
 
+// GET documents for an application
+router.get('/application/:applicationId', authMiddleware, adminDocsController.getApplicationDocuments);
+
+// PUT verify a document
+router.put('/:documentId/verify', authMiddleware, adminDocsController.verifyDocument);
+
+// PUT reject a document (unverify)
+router.put('/:documentId/reject', authMiddleware, adminDocsController.rejectDocument);
+
 module.exports = router;

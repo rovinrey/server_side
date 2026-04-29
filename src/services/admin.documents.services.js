@@ -253,3 +253,89 @@ exports.replaceSpesDocument = async (applicationId, fieldId, newFile) => {
 
     return { applicationId, fieldId, file_path: newFile.path };
 };
+
+/**
+ * Get all documents for an application by application_id
+ * Joins with applications table to find user_id from application
+ */
+exports.getApplicationDocuments = async (applicationId) => {
+    const [rows] = await db.query(`
+        SELECT 
+            bd.document_id,
+            bd.user_id,
+            bd.program_type,
+            bd.document_type,
+            bd.original_name,
+            bd.file_path,
+            bd.file_size,
+            bd.mime_type,
+            bd.uploaded_at,
+            bd.is_verified,
+            bd.verified_by,
+            bd.verified_at,
+            u.first_name AS verified_by_name
+        FROM beneficiary_documents bd
+        JOIN applications a ON bd.user_id = a.user_id
+        LEFT JOIN users u ON bd.verified_by = u.user_id
+        WHERE a.application_id = ?
+        ORDER BY bd.uploaded_at DESC
+    `, [applicationId]);
+    
+    return rows;
+};
+
+/**
+ * Verify a document by document ID
+ */
+exports.verifyDocument = async (documentId, adminId) => {
+    const verifiedAt = new Date();
+    
+    const [result] = await db.query(
+        `UPDATE beneficiary_documents 
+         SET is_verified = 1, verified_by = ?, verified_at = ?
+         WHERE document_id = ?`,
+        [adminId, verifiedAt, documentId]
+    );
+    
+    if (result.affectedRows === 0) {
+        return null;
+    }
+
+    // Fetch and return the updated document
+    const [rows] = await db.query(
+        `SELECT bd.*, u.first_name AS verified_by_name
+         FROM beneficiary_documents bd
+         LEFT JOIN users u ON bd.verified_by = u.user_id
+         WHERE bd.document_id = ?`,
+        [documentId]
+    );
+
+    return rows[0] || null;
+};
+
+/**
+ * Reject/unverify a document by document ID
+ */
+exports.rejectDocument = async (documentId) => {
+    const [result] = await db.query(
+        `UPDATE beneficiary_documents 
+         SET is_verified = 0, verified_by = NULL, verified_at = NULL
+         WHERE document_id = ?`,
+        [documentId]
+    );
+    
+    if (result.affectedRows === 0) {
+        return null;
+    }
+
+    // Fetch and return the updated document
+    const [rows] = await db.query(
+        `SELECT bd.*, u.first_name AS verified_by_name
+         FROM beneficiary_documents bd
+         LEFT JOIN users u ON bd.verified_by = u.user_id
+         WHERE bd.document_id = ?`,
+        [documentId]
+    );
+
+    return rows[0] || null;
+};

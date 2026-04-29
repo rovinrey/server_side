@@ -320,6 +320,81 @@ exports.approveApplication = async (req, res) => {
     }
 };
 
+// Submit complete SPES application with form data and documents
+exports.submitCompleteSPESApplication = async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ message: 'User authentication required' });
+        }
+
+        const data = {
+            ...req.body,
+            user_id: userId
+        };
+
+        const result = await spesService.applyToSpes(data);
+        res.status(201).json({
+            message: 'SPES application submitted successfully with all form data',
+            application_id: result.insertId || result.applicationId,
+            user_id: userId
+        });
+    } catch (error) {
+        console.error('Error submitting SPES application:', error.message);
+        res.status(500).json({ message: 'Error submitting SPES application', error: error.message });
+    }
+};
+
+// Submit complete GIP application with form data and documents
+exports.submitCompleteGIPApplication = async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ message: 'User authentication required' });
+        }
+
+        const data = {
+            ...req.body,
+            user_id: userId
+        };
+
+        const result = await gipService.applyToGip(data);
+        res.status(201).json({
+            message: 'GIP application submitted successfully with all form data',
+            application_id: result.application_id,
+            user_id: userId
+        });
+    } catch (error) {
+        console.error('Error submitting GIP application:', error.message);
+        res.status(500).json({ message: 'Error submitting GIP application', error: error.message });
+    }
+};
+
+// Submit complete DILP application with form data and documents
+exports.submitCompleteDILPApplication = async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ message: 'User authentication required' });
+        }
+
+        const data = {
+            ...req.body,
+            user_id: userId
+        };
+
+        const result = await dilpService.applyToDilp(data);
+        res.status(201).json({
+            message: 'DILP application submitted successfully with all form data',
+            application_id: result[0].insertId,
+            user_id: userId
+        });
+    } catch (error) {
+        console.error('Error submitting DILP application:', error.message);
+        res.status(500).json({ message: 'Error submitting DILP application', error: error.message });
+    }
+};
+
 // reject application with optional reason in body
 exports.rejectApplication = async (req, res) => {
     try {

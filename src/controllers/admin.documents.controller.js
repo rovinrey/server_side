@@ -561,3 +561,97 @@ exports.replaceSpesDocument = async (req, res) => {
         return res.status(500).json({ message: 'Error replacing SPES document' });
     }
 };
+
+/**
+ * GET /api/admin/documents/application/:applicationId
+ * Returns all documents uploaded by a beneficiary for a specific application
+ */
+exports.getApplicationDocuments = async (req, res) => {
+    const applicationId = parseInt(req.params.applicationId, 10);
+    if (isNaN(applicationId)) {
+        return res.status(400).json({ message: 'Invalid application ID' });
+    }
+
+    try {
+        const docs = await adminDocsService.getApplicationDocuments(applicationId);
+        
+        const mapped = docs.map((doc) => ({
+            document_id: doc.document_id,
+            user_id: doc.user_id,
+            program_type: doc.program_type,
+            document_type: doc.document_type,
+            document_type_label: formatLabel(doc.document_type),
+            original_name: doc.original_name,
+            file_size: doc.file_size,
+            mime_type: doc.mime_type,
+            uploaded_at: doc.uploaded_at,
+            is_verified: doc.is_verified,
+            verified_by: doc.verified_by,
+            verified_at: doc.verified_at,
+            verified_by_name: doc.verified_by_name,
+            url: `/uploads/beneficiary-documents/${path.basename(doc.file_path)}`,
+        }));
+
+        return res.status(200).json({ documents: mapped });
+    } catch (error) {
+        console.error('Error fetching application documents:', error.message);
+        return res.status(500).json({ message: 'Error fetching application documents' });
+    }
+};
+
+/**
+ * PUT /api/admin/documents/:documentId/verify
+ * Mark a document as verified by the admin
+ */
+exports.verifyDocument = async (req, res) => {
+    const documentId = parseInt(req.params.documentId, 10);
+    const adminId = req.user?.id;
+
+    if (isNaN(documentId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+    }
+
+    if (!adminId) {
+        return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    try {
+        const result = await adminDocsService.verifyDocument(documentId, adminId);
+        if (!result) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+        return res.status(200).json({ 
+            message: 'Document verified successfully',
+            document: result 
+        });
+    } catch (error) {
+        console.error('Error verifying document:', error.message);
+        return res.status(500).json({ message: 'Error verifying document' });
+    }
+};
+
+/**
+ * PUT /api/admin/documents/:documentId/reject
+ * Mark a document as not verified (reject verification)
+ */
+exports.rejectDocument = async (req, res) => {
+    const documentId = parseInt(req.params.documentId, 10);
+
+    if (isNaN(documentId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+    }
+
+    try {
+        const result = await adminDocsService.rejectDocument(documentId);
+        if (!result) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+        return res.status(200).json({ 
+            message: 'Document verification rejected',
+            document: result 
+        });
+    } catch (error) {
+        console.error('Error rejecting document:', error.message);
+        return res.status(500).json({ message: 'Error rejecting document' });
+    }
+};

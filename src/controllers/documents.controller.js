@@ -7,6 +7,7 @@ const VALID_PROGRAMS = ['tupad', 'spes', 'dilp', 'gip', 'job_seekers'];
 // Program → expected document types mapping
 const PROGRAM_REQUIREMENTS = {
     tupad: ['government_id', 'barangay_certification', 'birth_certificate'],
+    spes: ['government_id', 'birth_certificate', 'certificate_of_good_moral', 'proof_of_enrollment'],
     dilp: ['valid_government_id', 'project_proposal', 'barangay_clearance', 'business_registration'],
     gip: ['government_id', 'transcript_of_records', 'certificate_of_graduation', 'barangay_clearance', 'nbi_police_clearance'],
     job_seekers: ['updated_resume', 'valid_government_id', 'proof_of_address', 'certifications'],
@@ -158,5 +159,87 @@ exports.deleteDocument = async (req, res) => {
     } catch (error) {
         console.error('Error deleting document:', error.message);
         return res.status(500).json({ message: 'Error deleting document' });
+    }
+};
+
+/**
+ * PUT /api/documents/:documentId/verify
+ * Admin/Staff verifies a document
+ */
+exports.verifyDocument = async (req, res) => {
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+    
+    if (!userId || !['admin', 'staff'].includes(userRole)) {
+        return res.status(403).json({ message: 'Only admin and staff can verify documents' });
+    }
+
+    const { documentId } = req.params;
+    if (!documentId) {
+        return res.status(400).json({ message: 'documentId is required' });
+    }
+
+    try {
+        const result = await documentsService.verifyDocument(documentId, userId);
+        if (!result) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+
+        res.json({ message: 'Document verified successfully', documentId });
+    } catch (error) {
+        console.error('Error verifying document:', error.message);
+        res.status(500).json({ message: 'Error verifying document' });
+    }
+};
+
+/**
+ * PUT /api/documents/:documentId/reject
+ * Admin/Staff rejects a document
+ */
+exports.rejectDocument = async (req, res) => {
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+    
+    if (!userId || !['admin', 'staff'].includes(userRole)) {
+        return res.status(403).json({ message: 'Only admin and staff can reject documents' });
+    }
+
+    const { documentId } = req.params;
+    const { reason } = req.body;
+    
+    if (!documentId) {
+        return res.status(400).json({ message: 'documentId is required' });
+    }
+
+    try {
+        const result = await documentsService.rejectDocument(documentId, userId, reason);
+        if (!result) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+
+        res.json({ message: 'Document rejected successfully', documentId });
+    } catch (error) {
+        console.error('Error rejecting document:', error.message);
+        res.status(500).json({ message: 'Error rejecting document' });
+    }
+};
+
+/**
+ * GET /api/documents/:applicationId/verification-status
+ * Get verification status of all documents for an application
+ */
+exports.getDocumentVerificationStatus = async (req, res) => {
+    const { applicationId } = req.params;
+    
+    if (!applicationId) {
+        return res.status(400).json({ message: 'applicationId is required' });
+    }
+
+    try {
+        const documents = await documentsService.getDocumentsByApplicationId(applicationId);
+        res.json({ documents, totalCount: documents.length });
+    } catch (error) {
+        console.error('Error fetching document verification status:', error.message);
+        res.status(500).json({ message: 'Error fetching document verification status' });
     }
 };

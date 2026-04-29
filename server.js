@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -7,70 +8,89 @@ const path = require("path");
 
 const app = express();
 
+// Trust proxy (needed for Railway)
 app.set("trust proxy", 1);
 
-// --- CORS CONFIGURATION ---
+// Detect environment
+const isProduction = process.env.NODE_ENV === "production";
+
+// ============================
+// ✅ CORS CONFIG (FIXED)
+// ============================
 const allowedOrigins = [
-    "https://peso-juban.vercel.app", // additional production frontend
-    "http://localhost:5173", // this is for local development (Vite default port)
-    "http://localhost:5174", // additional local port (if needed)
-    "http://localhost:5175", // additional local port (if needed)
+    "https://peso-juban.vercel.app", // production frontend
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ];
 
-const corsOptions = {
-    origin: (origin, callback) => {
-        console.log("Incoming Origin:", origin);
+app.use(
+    cors({
+        origin: (origin, callback) => {
+            console.log("Incoming Origin:", origin);
 
-        // Allow requests with no origin (Postman, curl, mobile apps)
-        if (!origin) return callback(null, true);
+            // Allow tools like Postman / server-to-server
+            if (!origin) return callback(null, true);
 
-        if (allowedOrigins.includes(origin)) {
-            return callback(null, true);
-        }
+            // In development → allow everything
+            if (!isProduction) {
+                return callback(null, true);
+            }
 
-        console.error(`❌ CORS blocked: ${origin}`);
-        return callback(new Error("Not allowed by CORS"));
-    },
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-    optionsSuccessStatus: 200,
-};
+            // In production → restrict
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
 
-app.use(cors(corsOptions));
+            console.warn("❌ Blocked by CORS:", origin);
 
-app.options("*", cors(corsOptions));
+            // IMPORTANT: don't throw error → avoids fake 403
+            return callback(null, false);
+        },
+        credentials: true,
+    })
+);
 
-// --- SECURITY ---
+// ============================
+// 🔒 SECURITY
+// ============================
 app.use(
     helmet({
         crossOriginResourcePolicy: { policy: "cross-origin" },
-    }),
+    })
 );
 
-// --- RATE LIMIT (skip OPTIONS) ---
-const generalLimiter = rateLimit({
+// ============================
+// 🚦 RATE LIMIT
+// ============================
+const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 1000,
+    max: isProduction ? 100 : 1000, // stricter in production
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.method === "OPTIONS", // 🔥 IMPORTANT FIX
-    message: { message: "Too many requests, please try again later." },
+    skip: (req) => req.method === "OPTIONS",
 });
 
-app.use("/api/", generalLimiter);
+app.use("/api/", limiter);
 
-// --- BODY PARSERS ---
+// ============================
+// 📦 BODY PARSER
+// ============================
 app.use(express.json({ limit: "1mb" }));
-app.use(express.urlencoded({ extended: false, limit: "1mb" }));
+app.use(express.urlencoded({ extended: true }));
 
-// --- DEBUG LOGGER (optional but useful) ---
-app.use((req, res, next) => {
-    console.log(`${req.method} ${req.url}`);
-    next();
-});
+// ============================
+// 🧪 DEBUG LOGGER (DEV ONLY)
+// ============================
+if (!isProduction) {
+    app.use((req, res, next) => {
+        console.log(`${req.method} ${req.url}`);
+        next();
+    });
+}
 
-// --- ROUTES ---
+// ============================
+// 📂 ROUTES
+// ============================
 app.use("/api/auth", require("./src/routes/auth.routes.js"));
 app.use("/api/tupad", require("./src/routes/tupad.routes.js"));
 app.use("/api/programs", require("./src/routes/program.routes.js"));
@@ -80,36 +100,43 @@ app.use("/api/attendance", require("./src/routes/attendance.routes.js"));
 app.use("/api/notifications", require("./src/routes/notification.routes.js"));
 app.use("/api/payroll", require("./src/routes/payroll.routes.js"));
 app.use("/api/reports", require("./src/routes/reports.routes.js"));
-app.use(
-    "/api/spes-documents",
-    require("./src/routes/spes.documents.routes.js"),
-);
+app.use("/api/spes-documents", require("./src/routes/spes.documents.routes.js"));
 app.use("/api/documents", require("./src/routes/documents.routes.js"));
-app.use(
-    "/api/admin/documents",
-    require("./src/routes/admin.documents.routes.js"),
-);
+app.use("/api/admin/documents", require("./src/routes/admin.documents.routes.js"));
 
-// --- STATIC FILES ---
+// ============================
+// 📁 STATIC FILES
+// ============================
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// --- HEALTH CHECK ---
+// ============================
+// ❤️ HEALTH CHECK
+// ============================
 app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", time: new Date().toISOString() });
+    res.json({
+        status: "ok",
+        env: isProduction ? "production" : "development",
+        time: new Date().toISOString(),
+    });
 });
 
-// --- LOGOUT ---
+// ============================
+// 🚪 LOGOUT
+// ============================
 app.post("/api/logout", (req, res) => {
-    res.status(200).json({ message: "Logged out successfully" });
+    res.json({ message: "Logged out successfully" });
 });
 
-// --- GLOBAL ERROR HANDLER (VERY IMPORTANT) ---
+// ============================
+// ❌ GLOBAL ERROR HANDLER
+// ============================
 app.use((err, req, res, next) => {
     console.error("🔥 ERROR:", err.message);
 
-    if (err.message.includes("CORS")) {
+    // Handle CORS safely
+    if (err.message && err.message.includes("CORS")) {
         return res.status(403).json({
-            message: "CORS Error: Origin not allowed",
+            message: "Request blocked by CORS",
         });
     }
 
@@ -117,9 +144,14 @@ app.use((err, req, res, next) => {
         message: "Internal Server Error",
     });
 });
-// --- START SERVER ---
+
+// ============================
+// 🚀 START SERVER
+// ============================
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(
+        `🚀 Server running on port ${PORT} (${isProduction ? "PROD" : "DEV"})`
+    );
 });

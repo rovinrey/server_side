@@ -18,4 +18,12 @@ router.delete('/admin/:beneficiaryId', authMiddleware, requireAdmin, beneficiary
 
 router.get('/:applicationId/details', authMiddleware, requireAdminOrStaff, beneficiaryController.getBeneficiaryApplicationDetails);
 
+// =============================================
+// Enrollment routes
+// =============================================
+router.post('/enroll', authMiddleware, requireAdminOrStaff, beneficiaryController.enrollBeneficiary);
+router.get('/enroll/:applicationId/status', authMiddleware, requireAdminOrStaff, beneficiaryController.getEnrollmentStatus);
+router.get('/program/:programId/enrollees', authMiddleware, requireAdminOrStaff, beneficiaryController.getProgramEnrollees);
+router.put('/enroll/:enrolleeId/status', authMiddleware, requireAdminOrStaff, beneficiaryController.updateEnrollmentStatus);
+
 module.exports = router;

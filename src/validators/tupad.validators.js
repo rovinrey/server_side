@@ -24,6 +24,18 @@ const addMonths = (date, months) => {
     return copied;
 };
 
+const checkRecentTupadApplication = async (userId) => {
+    const [rows] = await db.execute(
+        `SELECT applied_at
+         FROM applications  
+            WHERE user_id = ? AND program_type = 'tupad'
+            ORDER BY applied_at DESC
+            LIMIT 1`,
+        [userId]
+    );
+    return rows[0];
+};
+
 // validators/tupadValidator.js
 exports.validateTupad = async (req, res, next) => {
     try {

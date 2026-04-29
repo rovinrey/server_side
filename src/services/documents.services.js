@@ -93,3 +93,44 @@ exports.deleteDocument = async (userId, documentId) => {
     await db.query('DELETE FROM beneficiary_documents WHERE document_id = ?', [documentId]);
     return true;
 };
+
+/**
+ * Verify a document (mark as verified)
+ */
+exports.verifyDocument = async (documentId, verifiedByUserId) => {
+    const [result] = await db.query(
+        `UPDATE beneficiary_documents 
+         SET is_verified = 1, verified_by = ?, verified_at = NOW()
+         WHERE document_id = ?`,
+        [verifiedByUserId, documentId]
+    );
+    return result.affectedRows > 0;
+};
+
+/**
+ * Reject a document (mark as rejected)
+ */
+exports.rejectDocument = async (documentId, rejectedByUserId, reason = null) => {
+    const [result] = await db.query(
+        `UPDATE beneficiary_documents 
+         SET is_verified = 0, verified_by = ?, verified_at = NOW()
+         WHERE document_id = ?`,
+        [rejectedByUserId, documentId]
+    );
+    return result.affectedRows > 0;
+};
+
+/**
+ * Get all documents for a beneficiary by application ID
+ */
+exports.getDocumentsByApplicationId = async (applicationId) => {
+    const [rows] = await db.query(
+        `SELECT bd.*, a.user_id 
+         FROM beneficiary_documents bd
+         JOIN applications a ON a.user_id = bd.user_id
+         WHERE a.application_id = ?
+         ORDER BY bd.program_type, bd.uploaded_at ASC`,
+        [applicationId]
+    );
+    return rows;
+};

@@ -1,82 +1,46 @@
 const mysql = require("mysql2/promise");
-const dotenv = require("dotenv");
+require("dotenv").config();
 
-// Load correct env file
-const NODE_ENV = process.env.NODE_ENV || "development";
-
-dotenv.config({
-    path: NODE_ENV === "production" ? ".env.production" : ".env",
-});
-
-const isProduction = NODE_ENV === "production";
-
-// Helper to ensure required env vars exist
-function requireEnv(name) {
-    const value = process.env[name];
-    if (!value) {
-        throw new Error(`❌ Missing environment variable: ${name}`);
-    }
-    return value;
-}
-
-// Build config
 function getDbConfig() {
-    // Option 1: Railway provides full URL
     if (process.env.MYSQL_URL) {
-        return {
-            uri: process.env.MYSQL_URL,
-        };
+        return { uri: process.env.MYSQL_URL };
     }
 
-    // Option 2: Manual config
-    if (isProduction) {
-        return {
-            host: requireEnv("MYSQLHOST"),
-            user: requireEnv("MYSQLUSER"),
-            password: process.env.MYSQLPASSWORD || "",
-            database: requireEnv("MYSQLDATABASE"),
-            port: parseInt(process.env.MYSQLPORT || "3306", 10),
-        };
-    }
-
-    // Local dev
     return {
-        host: process.env.DB_HOST || "localhost",
-        user: process.env.DB_USER || "root",
-        password: process.env.DB_PASSWORD || "",
-        database: process.env.DB_DATABASE || "capstone_db",
-        port: 3306,
+        host: process.env.MYSQLHOST || process.env.DB_HOST || "localhost",
+        user: process.env.MYSQLUSER || process.env.DB_USER || "root",
+        password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || "",
+        database:
+            process.env.MYSQLDATABASE ||
+            process.env.DB_DATABASE ||
+            "capstone_db",
+        port: parseInt(
+            process.env.MYSQLPORT || process.env.DB_PORT || "3306",
+            10
+        ),
     };
 }
 
-const dbConfig = getDbConfig();
+const config = getDbConfig();
 
-// Create pool
-const pool =
-    dbConfig.uri
-        ? mysql.createPool(dbConfig.uri)
-        : mysql.createPool({
-            ...dbConfig,
-            waitForConnections: true,
-            connectionLimit: 10,
-            queueLimit: 0,
-        });
+const pool = config.uri
+    ? mysql.createPool(config.uri)
+    : mysql.createPool({
+          ...config,
+          waitForConnections: true,
+          connectionLimit: 10,
+      });
 
-// Verify connection properly
-async function testConnection() {
+// test connection
+(async () => {
     try {
         const conn = await pool.getConnection();
         conn.release();
-
-        console.log(
-            `✅ Database connected (${isProduction ? "PRODUCTION" : "DEVELOPMENT"})`
-        );
+        console.log("✅ DB connected");
     } catch (err) {
-        console.error("❌ Database connection failed:", err.message);
-        process.exit(1); // crash early (important in production)
+        console.error("❌ DB error:", err.message);
+        process.exit(1);
     }
-}
-
-testConnection();
+})();
 
 module.exports = pool;
