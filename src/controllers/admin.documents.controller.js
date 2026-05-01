@@ -63,6 +63,12 @@ exports.getAllDocuments = async (req, res) => {
             file_size: doc.file_size,
             mime_type: doc.mime_type,
             uploaded_at: doc.uploaded_at,
+            status: doc.status || 'pending',
+            remarks: doc.remarks || null,
+            verified_by: doc.verified_by || null,
+            verified_at: doc.verified_at || null,
+            verified_by_name: doc.verified_by_name || null,
+            is_verified: doc.status === 'verified' ? 1 : 0,
             url: `/uploads/beneficiary-documents/${path.basename(doc.file_path)}`,
         }));
 
@@ -585,7 +591,8 @@ exports.getApplicationDocuments = async (req, res) => {
             file_size: doc.file_size,
             mime_type: doc.mime_type,
             uploaded_at: doc.uploaded_at,
-            is_verified: doc.is_verified,
+            status: doc.status,
+            is_verified: doc.status === 'verified',
             verified_by: doc.verified_by,
             verified_at: doc.verified_at,
             verified_by_name: doc.verified_by_name,

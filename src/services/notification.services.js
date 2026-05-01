@@ -104,8 +104,46 @@ const markAllAsRead = async (userId) => {
     );
 };
 
+/**
+ * Notify only ELIGIBLE beneficiaries for a specific program (no prior application).
+ */
+const notifyEligibleBeneficiaries = async ({ title, message, type, program_id }) => {
+    if (!title || !message || !program_id) {
+        throw new Error('Title, message, and program_id required for targeted notifications');
+    }
+
+    const [eligible] = await db.execute(`
+        SELECT u.user_id 
+        FROM users u
+        LEFT JOIN applications a ON u.user_id = a.user_id AND a.program_id = ?
+        WHERE u.role = 'beneficiary' 
+          AND a.application_id IS NULL
+        LIMIT 500
+    `, [program_id]);
+
+    if (eligible.length === 0) {
+        console.log('No eligible beneficiaries for program notifications');
+        return;
+    }
+
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < eligible.length; i += BATCH_SIZE) {
+        const batch = eligible.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
+        const values = batch.flatMap((b) => [
+            b.user_id, title, message, type || 'program_ready', program_id
+        ]);
+
+        await db.execute(
+            `INSERT INTO notifications (user_id, title, message, type, program_id) VALUES ${placeholders}`,
+            values
+        );
+    }
+};
+
 module.exports = {
     notifyAllBeneficiaries,
+    notifyEligibleBeneficiaries,
     getUserNotifications,
     getUnreadCount,
     markAsRead,

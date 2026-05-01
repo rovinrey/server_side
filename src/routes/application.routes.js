@@ -48,6 +48,7 @@ router.get('/status', authMiddleware, applicationController.getApplicationStatus
 // Application approval routes
 router.get('/pending', authMiddleware, applicationController.getPendingApplications);
 router.get('/', authMiddleware, applicationController.getApplicationsByStatus);
+router.get('/:id/enrollment-status', authMiddleware, applicationController.getApplicationEnrollmentStatus);
 router.put('/:id/approve', authMiddleware, requireAdminOrStaff, applicationController.approveApplication);
 router.put('/:id/reject', authMiddleware, requireAdminOrStaff, applicationController.rejectApplication);
 

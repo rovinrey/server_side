@@ -20,5 +20,10 @@ router.post('/login', authLimiter, validateLogin, authController.login);
 router.post('/forgot-password', authController.forgotPassword);
 router.post('/reset-password', authController.resetPassword);
 router.get('/getProfile', authMiddleware, authController.getProfile);
+router.put('/updateProfile', authMiddleware, authController.updateProfile);
+router.put('/changePassword', authMiddleware, authController.changePassword);
+
+// Admin-only route: Create admin or staff user
+router.post('/create-user', authMiddleware, authController.createUser);
 
 module.exports = router;

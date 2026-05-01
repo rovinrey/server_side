@@ -297,6 +297,28 @@ exports.getApplicationsByStatus = async (req, res) => {
     }
 };
 
+// NEW: Get enrollment status for specific application
+exports.getApplicationEnrollmentStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const status = await beneficiaryService.getEnrollmentStatus(id);
+        
+        // Transform response to match frontend expectation
+        const responseData = status ? {
+            is_enrolled: status.current_status === 'Active',
+            program_id: status.program_id
+        } : {
+            is_enrolled: false,
+            program_id: null
+        };
+        
+        res.status(200).json(responseData);
+    } catch (error) {
+        console.error("Error getting enrollment status:", error.message);
+        res.status(500).json({ message: "Error checking enrollment status", error: error.message });
+    }
+};
+
 // approve specific application by id
 exports.approveApplication = async (req, res) => {
     try {

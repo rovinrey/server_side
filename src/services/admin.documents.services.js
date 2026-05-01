@@ -16,6 +16,11 @@ exports.getAllDocuments = async ({ programType, userId } = {}) => {
             bd.file_path,
             bd.file_size,
             bd.mime_type,
+            bd.status,
+            bd.remarks,
+            bd.verified_by,
+            bd.verified_at,
+            v.user_name AS verified_by_name,
             bd.uploaded_at,
             u.email,
             u.phone,
@@ -24,6 +29,7 @@ exports.getAllDocuments = async ({ programType, userId } = {}) => {
         FROM beneficiary_documents bd
         JOIN users u ON bd.user_id = u.user_id
         LEFT JOIN beneficiaries b ON bd.user_id = b.user_id
+        LEFT JOIN users v ON bd.verified_by = v.user_id
     `;
 
     const conditions = [];
@@ -270,10 +276,11 @@ exports.getApplicationDocuments = async (applicationId) => {
             bd.file_size,
             bd.mime_type,
             bd.uploaded_at,
-            bd.is_verified,
+            bd.status,
+            bd.remarks,
             bd.verified_by,
             bd.verified_at,
-            u.first_name AS verified_by_name
+            u.user_name AS verified_by_name
         FROM beneficiary_documents bd
         JOIN applications a ON bd.user_id = a.user_id
         LEFT JOIN users u ON bd.verified_by = u.user_id
@@ -292,7 +299,7 @@ exports.verifyDocument = async (documentId, adminId) => {
     
     const [result] = await db.query(
         `UPDATE beneficiary_documents 
-         SET is_verified = 1, verified_by = ?, verified_at = ?
+         SET status = 'verified', verified_by = ?, verified_at = ?
          WHERE document_id = ?`,
         [adminId, verifiedAt, documentId]
     );
@@ -303,7 +310,7 @@ exports.verifyDocument = async (documentId, adminId) => {
 
     // Fetch and return the updated document
     const [rows] = await db.query(
-        `SELECT bd.*, u.first_name AS verified_by_name
+        `SELECT bd.*, u.user_name AS verified_by_name
          FROM beneficiary_documents bd
          LEFT JOIN users u ON bd.verified_by = u.user_id
          WHERE bd.document_id = ?`,
@@ -319,7 +326,7 @@ exports.verifyDocument = async (documentId, adminId) => {
 exports.rejectDocument = async (documentId) => {
     const [result] = await db.query(
         `UPDATE beneficiary_documents 
-         SET is_verified = 0, verified_by = NULL, verified_at = NULL
+         SET status = 'rejected', verified_by = NULL, verified_at = NULL
          WHERE document_id = ?`,
         [documentId]
     );
@@ -330,7 +337,7 @@ exports.rejectDocument = async (documentId) => {
 
     // Fetch and return the updated document
     const [rows] = await db.query(
-        `SELECT bd.*, u.first_name AS verified_by_name
+        `SELECT bd.*, u.user_name AS verified_by_name
          FROM beneficiary_documents bd
          LEFT JOIN users u ON bd.verified_by = u.user_id
          WHERE bd.document_id = ?`,

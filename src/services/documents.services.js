@@ -1,9 +1,56 @@
 const db = require('../../config');
-const fs = require('fs');
+const fs = require('fs').promises; // Senior tip: Use promises for non-blocking file I/O
 const path = require('path');
 
 /**
- * Get all documents for a user + program combination.
+ * VERIFICATION LOGIC
+ * Replaced 'is_verified' with the correct 'status' ENUM from the schema.
+ */
+
+/**
+ * Approves a document and records the verifier's ID.
+ * @param {number} documentId - The ID of the document to verify.
+ * @param {number} adminId - The user_id of the staff performing the action.
+ */
+exports.verifyDocument = async (documentId, adminId) => {
+    // We use the 'status' column as defined: ENUM('pending','verified','rejected')
+    const [result] = await db.query(
+        `UPDATE beneficiary_documents 
+         SET status = 'verified', 
+             verified_by = ?, 
+             verified_at = NOW(),
+             remarks = 'Document verified and approved.'
+         WHERE document_id = ?`,
+        [adminId, documentId]
+    );
+    return result.affectedRows > 0;
+};
+
+/**
+ * Rejects a document and saves the reason for the beneficiary to see.
+ * @param {number} documentId 
+ * @param {number} adminId 
+ * @param {string} reason - Feedback for the user (e.g., "Image too blurry").
+ */
+exports.rejectDocument = async (documentId, adminId, reason = null) => {
+    const [result] = await db.query(
+        `UPDATE beneficiary_documents 
+         SET status = 'rejected', 
+             verified_by = ?, 
+             verified_at = NOW(), 
+             remarks = ?
+         WHERE document_id = ?`,
+        [adminId, reason || 'Document rejected: Please re-upload.', documentId]
+    );
+    return result.affectedRows > 0;
+};
+
+/**
+ * RETRIEVAL & MAINTENANCE LOGIC
+ */
+
+/**
+ * Fetches all documents for a specific user within a specific program (e.g., TUPAD).
  */
 exports.getDocumentsByUserAndProgram = async (userId, programType) => {
     const [rows] = await db.query(
@@ -14,123 +61,23 @@ exports.getDocumentsByUserAndProgram = async (userId, programType) => {
 };
 
 /**
- * Upload (or replace) a document for a given user, program, and document_type.
- * Uses UNIQUE(user_id, program_type, document_type) — replaces existing file if re-uploaded.
- */
-exports.uploadDocument = async (userId, programType, documentType, file) => {
-    // Check for existing document of same type
-    const [existing] = await db.query(
-        'SELECT * FROM beneficiary_documents WHERE user_id = ? AND program_type = ? AND document_type = ?',
-        [userId, programType, documentType]
-    );
-
-    if (existing.length > 0) {
-        // Delete old file from disk
-        const oldPath = existing[0].file_path;
-        if (oldPath && fs.existsSync(oldPath)) {
-            fs.unlinkSync(oldPath);
-        }
-        // Update the record
-        await db.query(
-            `UPDATE beneficiary_documents SET original_name = ?, file_path = ?, file_size = ?, mime_type = ?, uploaded_at = NOW()
-             WHERE document_id = ?`,
-            [file.originalname, file.path, file.size, file.mimetype, existing[0].document_id]
-        );
-        return existing[0].document_id;
-    }
-
-    // Insert new record
-    const [result] = await db.query(
-        `INSERT INTO beneficiary_documents (user_id, program_type, document_type, original_name, file_path, file_size, mime_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [userId, programType, documentType, file.originalname, file.path, file.size, file.mimetype]
-    );
-    return result.insertId;
-};
-
-/**
- * Get document counts grouped by program_type for a given user.
- * Returns: [{ program_type, submitted_count }]
- */
-exports.getDocumentCountsByUser = async (userId) => {
-    const [rows] = await db.query(
-        `SELECT program_type, COUNT(*) AS submitted_count
-         FROM beneficiary_documents
-         WHERE user_id = ?
-         GROUP BY program_type`,
-        [userId]
-    );
-    return rows;
-};
-
-/**
- * Get all documents for a user across all programs.
- * Returns: [{ document_id, program_type, document_type, original_name, file_size, mime_type, uploaded_at, file_path }]
- */
-exports.getAllDocumentsByUser = async (userId) => {
-    const [rows] = await db.query(
-        'SELECT * FROM beneficiary_documents WHERE user_id = ? ORDER BY program_type, uploaded_at ASC',
-        [userId]
-    );
-    return rows;
-};
-
-/**
- * Delete a document by ID (only if it belongs to the requesting user).
+ * Deletes a document and its physical file from the server.
  */
 exports.deleteDocument = async (userId, documentId) => {
     const [rows] = await db.query(
-        'SELECT * FROM beneficiary_documents WHERE document_id = ? AND user_id = ?',
+        'SELECT file_path FROM beneficiary_documents WHERE document_id = ? AND user_id = ?',
         [documentId, userId]
     );
+    
     if (rows.length === 0) return false;
 
-    const filePath = rows[0].file_path;
-    if (filePath && fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+    // Clean up the physical file to prevent storage bloat
+    try {
+        await fs.unlink(rows[0].file_path);
+    } catch (err) {
+        console.error("File deletion failed:", err.message);
     }
 
     await db.query('DELETE FROM beneficiary_documents WHERE document_id = ?', [documentId]);
     return true;
-};
-
-/**
- * Verify a document (mark as verified)
- */
-exports.verifyDocument = async (documentId, verifiedByUserId) => {
-    const [result] = await db.query(
-        `UPDATE beneficiary_documents 
-         SET is_verified = 1, verified_by = ?, verified_at = NOW()
-         WHERE document_id = ?`,
-        [verifiedByUserId, documentId]
-    );
-    return result.affectedRows > 0;
-};
-
-/**
- * Reject a document (mark as rejected)
- */
-exports.rejectDocument = async (documentId, rejectedByUserId, reason = null) => {
-    const [result] = await db.query(
-        `UPDATE beneficiary_documents 
-         SET is_verified = 0, verified_by = ?, verified_at = NOW()
-         WHERE document_id = ?`,
-        [rejectedByUserId, documentId]
-    );
-    return result.affectedRows > 0;
-};
-
-/**
- * Get all documents for a beneficiary by application ID
- */
-exports.getDocumentsByApplicationId = async (applicationId) => {
-    const [rows] = await db.query(
-        `SELECT bd.*, a.user_id 
-         FROM beneficiary_documents bd
-         JOIN applications a ON a.user_id = bd.user_id
-         WHERE a.application_id = ?
-         ORDER BY bd.program_type, bd.uploaded_at ASC`,
-        [applicationId]
-    );
-    return rows;
 };

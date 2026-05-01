@@ -202,8 +202,210 @@ const getProfile = async (userId) => {
     }
 };
 
+// --- UPDATE PROFILE (username) ---
+const updateProfile = async (userId, newUserName) => {
+    if (!userId) {
+        const error = new Error('Unauthorized');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    if (!newUserName || newUserName.length < 2 || newUserName.length > 50) {
+        const error = new Error('Username must be between 2 and 50 characters');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    try {
+        // Check if the new username is already taken by another user
+        const [existing] = await db.execute(
+            'SELECT user_id FROM users WHERE user_name = ? AND user_id != ?',
+            [newUserName.trim(), userId]
+        );
+        if (existing.length > 0) {
+            const error = new Error('Username is already in use');
+            error.statusCode = 409;
+            throw error;
+        }
+
+        await db.execute(
+            'UPDATE users SET user_name = ? WHERE user_id = ?',
+            [newUserName.trim(), userId]
+        );
+
+        return { message: 'Profile updated successfully!' };
+    } catch (error) {
+        if (!error.statusCode) {
+            console.error('Update profile error:', error.code || error.message);
+        }
+        throw error;
+    }
+};
+
+// --- CHANGE PASSWORD ---
+const changePassword = async (userId, currentPassword, newPassword) => {
+    if (!userId) {
+        const error = new Error('Unauthorized');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    if (!currentPassword || !newPassword) {
+        const error = new Error('Current password and new password are required');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Validate new password strength
+    if (!PASSWORD_REGEX.test(newPassword)) {
+        const error = new Error(
+            'Password must be at least 8 characters with uppercase, lowercase, number, and special character'
+        );
+        error.statusCode = 400;
+        throw error;
+    }
+
+    try {
+        // Get current password hash
+        const [users] = await db.execute(
+            'SELECT password FROM users WHERE user_id = ?',
+            [userId]
+        );
+        if (users.length === 0) {
+            const error = new Error('User not found');
+            error.statusCode = 404;
+            throw error;
+        }
+
+        // Verify current password
+        const isPasswordValid = await bcrypt.compare(currentPassword, users[0].password);
+        if (!isPasswordValid) {
+            const error = new Error('Current password is incorrect');
+            error.statusCode = 401;
+            throw error;
+        }
+
+        // Hash new password and update
+        const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+        await db.execute(
+            'UPDATE users SET password = ? WHERE user_id = ?',
+            [hashedPassword, userId]
+        );
+
+        return { message: 'Password changed successfully!' };
+    } catch (error) {
+        if (!error.statusCode) {
+            console.error('Change password error:', error.code || error.message);
+        }
+        throw error;
+    }
+};
+
+// --- CREATE ADMIN/STAFF USER (Admin only) ---
+const createUser = async (adminId, adminRole, body) => {
+    // Security: Only allow admins to create users
+    const { user_name, identifier, password, role } = body;
+
+    if (!adminId) {
+        const error = new Error('Unauthorized - Admin access required');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    // Verify the request is from an admin
+    if (adminRole !== 'admin') {
+        const error = new Error('Forbidden - Admin role required');
+        error.statusCode = 403;
+        throw error;
+    }
+
+    // Validate required fields
+    if (!user_name || !identifier || !password || !role) {
+        const error = new Error('All fields are required: user_name, identifier, password, role');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Validate role - only allow admin or staff
+    const allowedRoles = ['admin', 'staff'];
+    if (!allowedRoles.includes(role)) {
+        const error = new Error('Role must be either "admin" or "staff"');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Validate username
+    if (user_name.length < 2 || user_name.length > 50) {
+        const error = new Error('Username must be between 2 and 50 characters');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Validate password strength
+    if (!PASSWORD_REGEX.test(password)) {
+        const error = new Error(
+            'Password must be at least 8 characters with uppercase, lowercase, number, and special character'
+        );
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Parse identifier (email or phone)
+    const trimmedIdentifier = String(identifier).trim();
+    let email = null;
+    let phone = null;
+
+    if (trimmedIdentifier.includes('@')) {
+        if (!EMAIL_REGEX.test(trimmedIdentifier)) {
+            const error = new Error('Please provide a valid email address');
+            error.statusCode = 400;
+            throw error;
+        }
+        email = trimmedIdentifier.toLowerCase();
+    } else {
+        const digitsOnly = trimmedIdentifier.replace(/\D/g, '');
+        if (!PHONE_REGEX.test(trimmedIdentifier) || digitsOnly.length < 7 || digitsOnly.length > 15) {
+            const error = new Error('Please provide a valid phone number');
+            error.statusCode = 400;
+            throw error;
+        }
+        phone = trimmedIdentifier;
+    }
+
+    try {
+        // Check if identifier already exists
+        const [existingUsers] = await db.execute(
+            'SELECT user_id FROM users WHERE email = ? OR phone = ?',
+            [email, phone]
+        );
+        if (existingUsers.length > 0) {
+            const error = new Error('Email or phone number already in use');
+            error.statusCode = 409;
+            throw error;
+        }
+
+        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+        // Insert user with specified role
+        await db.execute(
+            'INSERT INTO users (user_name, email, phone, password, role) VALUES (?, ?, ?, ?, ?)',
+            [user_name.trim(), email, phone, hashedPassword, role]
+        );
+
+        return { message: `${role} user created successfully!` };
+    } catch (error) {
+        if (!error.statusCode) {
+            console.error('Create user error:', error.code || error.message);
+        }
+        throw error;
+    }
+};
+
 module.exports = {
     signup,
     login,
-    getProfile
+    getProfile,
+    updateProfile,
+    changePassword,
+    createUser
 };

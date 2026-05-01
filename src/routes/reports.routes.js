@@ -1,3 +1,4 @@
+
 const express = require('express');
 const router = express.Router();
 const reportsController = require('../controllers/reports.controller');
@@ -15,6 +16,7 @@ router.get('/employment-facilitation', authMiddleware, requireAdminOrStaff, repo
 router.get('/spes', authMiddleware, requireAdminOrStaff, reportsController.getSpesReport);
 router.get('/gip', authMiddleware, requireAdminOrStaff, reportsController.getGipReport);
 router.get('/consolidated', authMiddleware, requireAdminOrStaff, reportsController.getConsolidatedReport);
+router.get('/barangay-beneficiaries', authMiddleware, requireAdminOrStaff, reportsController.getBarangayBeneficiaries);
 
 // ── Excel export endpoints ─────────────────────────
 

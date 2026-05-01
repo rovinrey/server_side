@@ -1,3 +1,87 @@
+// ── TUPAD Beneficiaries Excel Export ───────────────
+exports.exportTupadBeneficiariesExcel = async (req, res) => {
+    try {
+        // Only TUPAD program
+        const data = await reportService.getBeneficiaryMasterList('tupad', null);
+        const rows = data.beneficiaries;
+
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'PESO Juban Management System';
+        const ws = wb.addWorksheet('TUPAD Beneficiaries', { pageSetup: landscapeSetup });
+
+        let row = addTitle(ws, 'TUPAD BENEFICIARIES LIST', 'Program: TUPAD', 27);
+
+        const headers = [
+            { header: 'Application ID', width: 12 },
+            { header: 'User ID', width: 10 },
+            { header: 'Program Type', width: 12 },
+            { header: 'Application Status', width: 14 },
+            { header: 'First Name', width: 14 },
+            { header: 'Middle Name', width: 14 },
+            { header: 'Last Name', width: 14 },
+            { header: 'Extension Name', width: 10 },
+            { header: 'Birth Date', width: 12 },
+            { header: 'Age', width: 6 },
+            { header: 'Gender', width: 8 },
+            { header: 'Civil Status', width: 12 },
+            { header: 'Contact Number', width: 14 },
+            { header: 'Street/Zone', width: 14 },
+            { header: 'Barangay', width: 14 },
+            { header: 'City/Municipality', width: 16 },
+            { header: 'Province', width: 14 },
+            { header: 'District', width: 10 },
+            { header: 'ID Type', width: 10 },
+            { header: 'ID Number', width: 14 },
+            { header: 'ePayment Account No.', width: 18 },
+            { header: 'Beneficiary Type', width: 14 },
+            { header: 'Occupation', width: 14 },
+            { header: 'Avg Monthly Income', width: 16 },
+            { header: 'Dependent Count', width: 10 },
+            { header: 'Interested in Employment', width: 14 },
+            { header: 'Skills Training Needed', width: 16 },
+        ];
+        row = addHeaderRow(ws, row, headers);
+
+        rows.forEach((b) => {
+            row = addDataRow(ws, row, [
+                b.application_id,
+                b.user_id,
+                b.program_type,
+                b.application_status,
+                b.first_name,
+                b.middle_name,
+                b.last_name,
+                b.extension_name,
+                formatDate(b.birth_date),
+                b.age,
+                b.gender,
+                b.civil_status,
+                b.contact_number,
+                b.street_zone,
+                b.barangay,
+                b.city_municipality,
+                b.province,
+                b.district,
+                b.id_type,
+                b.id_number,
+                b.epayment_account_no,
+                b.beneficiary_type,
+                b.occupation,
+                b.avg_monthly_income,
+                b.dependent_count,
+                b.is_interested_in_employment,
+                b.skills_training_needed,
+            ]);
+        });
+
+        addSignatureBlock(ws, row);
+        const filename = `TUPAD_Beneficiaries_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        await sendWorkbook(res, wb, filename);
+    } catch (error) {
+        console.error('Export TUPAD beneficiaries error:', error.message);
+        res.status(500).json({ message: error.message || 'Error exporting TUPAD beneficiaries' });
+    }
+};
 const ExcelJS = require('exceljs');
 const reportService = require('../services/reports.services');
 
@@ -158,6 +242,17 @@ exports.getBeneficiaryMasterList = async (req, res) => {
     } catch (error) {
         console.error('Beneficiary master list error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
+    }
+};
+
+exports.getBarangayBeneficiaries = async (req, res) => {
+    try {
+        const barangayService = require('../services/barangay.service');
+        const data = await barangayService.getBarangayBeneficiariesStats();
+        res.json(data);
+    } catch (error) {
+        console.error('Barangay beneficiaries error:', error.message);
+        res.status(500).json({ message: error.message || 'Error fetching barangay data' });
     }
 };
 

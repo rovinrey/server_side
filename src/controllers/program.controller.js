@@ -1,5 +1,6 @@
 const db = require('../../config');
-const { notifyAllBeneficiaries } = require('../services/notification.services');
+const { notifyAllBeneficiaries, notifyEligibleBeneficiaries } = require('../services/notification.services');
+const programsService = require('../services/programs.services');
 
 // Map program status to a notification type and human-readable label
 const getNotificationMeta = (status) => {
@@ -41,21 +42,29 @@ exports.createProgram = async (req, res) => {
 
         const programId = result.insertId;
 
-        // Notify all beneficiaries about the new program
+        // Notify based on status (all vs eligible)
         try {
-            const { type, label } = getNotificationMeta(status);
-            const dateInfo = start_date
-                ? ` starting ${new Date(start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
-                : '';
+            if (status?.toLowerCase() === 'ready') {
+                await notifyEligibleBeneficiaries({
+                    title: `${name} — Now Ready for Applications!`,
+                    message: `Program "${name}" in ${location} is now accepting applicants. ${slots} slots available. Apply now!`,
+                    type: 'program_ready',
+                    program_id: programId,
+                });
+            } else {
+                const { type, label } = getNotificationMeta(status);
+                const dateInfo = start_date
+                    ? ` starting ${new Date(start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
+                    : '';
 
-            await notifyAllBeneficiaries({
-                title: `${name} — ${label}`,
-                message: `A new program "${name}" in ${location} is ${label.toLowerCase()}${dateInfo}. ${slots} slots available.`,
-                type,
-                program_id: programId,
-            });
+                await notifyAllBeneficiaries({
+                    title: `${name} — ${label}`,
+                    message: `A new program "${name}" in ${location} is ${label.toLowerCase()}${dateInfo}. ${slots} slots available.`,
+                    type,
+                    program_id: programId,
+                });
+            }
         } catch (notifError) {
-            // Log but don't fail the program creation if notifications fail
             console.error('Failed to send program notifications:', notifError);
         }
 
@@ -78,6 +87,17 @@ exports.createProgram = async (req, res) => {
     } catch (error) {
         console.error("Error creating program:", error);
         res.status(500).json({ message: "Error creating program", error: error.message });
+    }
+};
+
+// Get READY programs for beneficiary dashboard
+exports.getReadyPrograms = async (req, res) => {
+    try {
+        const programs = await programsService.getReadyPrograms();
+        res.status(200).json(programs);
+    } catch (error) {
+        console.error("Error fetching ready programs:", error);
+        res.status(500).json({ message: "Error fetching ready programs", error: error.message });
     }
 };
 
@@ -176,6 +196,20 @@ exports.updateProgram = async (req, res) => {
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Program not found" });
+        }
+
+        // Trigger notifications if status changed to 'ready'
+        if (status?.toLowerCase() === 'ready') {
+            try {
+                await notifyEligibleBeneficiaries({
+                    title: `${name} — Now Ready for Applications!`,
+                    message: `Program "${name}" in ${location} is now accepting applicants. ${slots} slots available. Apply now!`,
+                    type: 'program_ready',
+                    program_id: parseInt(program_id),
+                });
+            } catch (notifError) {
+                console.error('Failed to send ready program notifications:', notifError);
+            }
         }
 
         res.status(200).json({ message: "Program updated successfully!" });

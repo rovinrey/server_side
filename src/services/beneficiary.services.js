@@ -203,15 +203,28 @@ exports.getPendingApplications = async (programType = null) => {
   return [rows];
 };
 
-// get applications by status (for admin management view)
+// get applications by status (for admin management view) - excludes actively enrolled for Approved status
 exports.getApplicationsByStatus = async (status, programType = null) => {
   const params = [status];
-  let whereClause = 'WHERE a.status = ?';
+  let whereConditions = ['a.status = ?'];
 
   if (programType) {
-    whereClause += ' AND a.program_type = ?';
+    whereConditions.push('a.program_type = ?');
     params.push(programType);
   }
+
+  // NEW: For Approved status, exclude actively enrolled beneficiaries
+  if (status === 'Approved') {
+    whereConditions.push(`
+      NOT EXISTS (
+        SELECT 1 FROM program_enrollees pe 
+        WHERE pe.application_id = a.application_id 
+        AND pe.current_status = 'Active'
+      )
+    `);
+  }
+
+  const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
 
   const query = `
     SELECT
@@ -492,7 +505,7 @@ exports.updateDailyWage = async (newWage) => {
 
 exports.getTupadMonthlyReport = async (monthInput) => {
   const monthRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
-  const selectedMonth = monthRegex.test(String(monthInput || ''))
+  const selectedMonth = monthRegex.test(String(monthInput || '')) 
     ? String(monthInput)
     : new Date().toISOString().slice(0, 7);
 
@@ -651,6 +664,147 @@ exports.getTupadMonthlyReport = async (monthInput) => {
     totals: payrollTotals,
     dailyWage: DAILY_WAGE
   };
+};
+
+// =============================================
+// Payout Profile Management
+// =============================================
+
+/**
+ * Add payout-related fields to beneficiaries table
+ * and manage payout readiness
+ */
+exports.ensurePayoutFields = async () => {
+    await db.execute(`
+        ALTER TABLE beneficiaries 
+        ADD COLUMN IF NOT EXISTS gcash_number VARCHAR(20) NULL,
+        ADD COLUMN IF NOT EXISTS bank_name VARCHAR(100) NULL,
+        ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(50) NULL,
+        ADD COLUMN IF NOT EXISTS bank_account_name VARCHAR(100) NULL,
+        ADD COLUMN IF NOT EXISTS payout_ready TINYINT(1) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS payout_verified_at DATETIME NULL
+    `);
+};
+
+/**
+ * Update beneficiary payout profile (GCash or Bank details)
+ */
+exports.updatePayoutProfile = async (userId, payoutData) => {
+    const { gcash_number, bank_name, bank_account_number, bank_account_name, payout_mode } = payoutData;
+    
+    // Validate payout mode
+    if (payout_mode && !['gcash', 'bank'].includes(payout_mode)) {
+        throw new Error('Invalid payout mode. Must be "gcash" or "bank"');
+    }
+
+    // Validate GCash number format if provided
+    if (gcash_number) {
+        const gcashRegex = /^09\d{9}$/;
+        if (!gcashRegex.test(gcash_number)) {
+            throw new Error('GCash number must be in format: 09XXXXXXXXX (11 digits starting with 09)');
+        }
+    }
+
+    // Validate bank details if provided
+    if (bank_name && !bank_account_number) {
+        throw new Error('Bank account number is required when bank name is provided');
+    }
+    if (bank_account_number && !bank_name) {
+        throw new Error('Bank name is required when bank account number is provided');
+    }
+
+    const payout_ready = (gcash_number || (bank_name && bank_account_number)) ? 1 : 0;
+    const payout_verified_at = payout_ready ? new Date() : null;
+
+    const [result] = await db.execute(
+        `UPDATE beneficiaries 
+         SET gcash_number = ?, 
+             bank_name = ?, 
+             bank_account_number = ?, 
+             bank_account_name = ?,
+             payout_ready = ?,
+             payout_verified_at = ?
+         WHERE user_id = ?`,
+        [
+            gcash_number || null,
+            bank_name || null,
+            bank_account_number || null,
+            bank_account_name || null,
+            payout_ready,
+            payout_verified_at,
+            userId
+        ]
+    );
+
+    return result;
+};
+
+/**
+ * Get beneficiary payout profile
+ */
+exports.getPayoutProfile = async (userId) => {
+    await exports.ensurePayoutFields();
+    
+    const query = `
+        SELECT 
+            b.beneficiary_id,
+            b.user_id,
+            b.first_name,
+            b.middle_name,
+            b.last_name,
+            b.gcash_number,
+            b.bank_name,
+            b.bank_account_number,
+            b.bank_account_name,
+            b.payout_ready,
+            b.payout_verified_at,
+            CASE 
+                WHEN b.gcash_number IS NOT NULL THEN 'gcash'
+                WHEN b.bank_name IS NOT NULL THEN 'bank'
+                ELSE NULL
+            END AS payout_mode
+        FROM beneficiaries b
+        WHERE b.user_id = ?
+    `;
+    
+    const [rows] = await db.execute(query, [userId]);
+    return rows[0] || null;
+};
+
+/**
+ * Get beneficiaries ready for payout (payout_ready = 1)
+ */
+exports.getPayoutReadyBeneficiaries = async (programType = null) => {
+    await exports.ensurePayoutFields();
+    
+    let query = `
+        SELECT 
+            b.beneficiary_id,
+            b.user_id,
+            b.first_name,
+            b.middle_name,
+            b.last_name,
+            COALESCE(b.gcash_number, '') AS gcash_number,
+            COALESCE(b.bank_name, '') AS bank_name,
+            COALESCE(b.bank_account_number, '') AS bank_account_number,
+            b.payout_ready,
+            a.program_type,
+            a.status AS application_status
+        FROM beneficiaries b
+        LEFT JOIN applications a ON a.user_id = b.user_id AND a.status = 'Approved'
+        WHERE b.payout_ready = 1
+    `;
+    
+    const params = [];
+    if (programType) {
+        query += ` AND LOWER(a.program_type) = ?`;
+        params.push(programType.toLowerCase());
+    }
+    
+    query += ` ORDER BY b.last_name, b.first_name`;
+    
+    const [rows] = await db.execute(query, params);
+    return rows;
 };
 
 // =============================================
@@ -1260,3 +1414,87 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
     connection.release();
   }
 };
+
+/**
+ * Get all enrollees for a specific program
+ * Used by: beneficiaryController.getProgramEnrollees
+ */
+exports.getProgramEnrollees = async (programId) => {
+  const query = `
+    SELECT 
+      pe.enrollee_id,
+      pe.application_id,
+      a.user_id,
+      pe.program_id,
+      pe.enrollment_date,
+      pe.current_status,
+      b.first_name,
+      b.middle_name,
+      b.last_name,
+      b.extension_name,
+      COALESCE(b.contact_number, u.phone) AS contact_number,
+      u.email,
+      b.address,
+      b.gender,
+      b.civil_status,
+      b.birth_date,
+      p.program_name
+    FROM program_enrollees pe
+    LEFT JOIN applications a ON pe.application_id = a.application_id
+    LEFT JOIN beneficiaries b ON a.user_id = b.user_id
+    LEFT JOIN users u ON a.user_id = u.user_id
+    LEFT JOIN programs p ON pe.program_id = p.program_id
+    WHERE pe.program_id = ?
+    ORDER BY pe.enrollment_date DESC
+  `;
+  const [rows] = await db.execute(query, [programId]);
+  return rows;
+};
+
+/**
+ * Get enrollment status for a specific application
+ */
+exports.getEnrollmentStatus = async (applicationId) => {
+  const query = `
+    SELECT 
+      pe.enrollee_id,
+      pe.application_id,
+      pe.program_id,
+      pe.enrollment_date,
+      pe.current_status
+    FROM program_enrollees pe
+    WHERE pe.application_id = ?
+    ORDER BY pe.enrollment_date DESC
+    LIMIT 1
+  `;
+  
+  const [rows] = await db.execute(query, [applicationId]);
+  return rows[0] || null;
+};
+
+/**
+ * Update enrollment status
+ */
+exports.updateEnrollmentStatus = async (enrolleeId, status) => {
+  const validStatuses = ['Active', 'Completed', 'Dropped', 'Suspended'];
+  if (!validStatuses.includes(status)) {
+    throw new Error('Invalid status. Must be one of: Active, Completed, Dropped, Suspended');
+  }
+
+  const [existing] = await db.execute(
+    'SELECT enrollee_id FROM program_enrollees WHERE enrollee_id = ?',
+    [enrolleeId]
+  );
+
+  if (!existing.length) {
+    throw new Error('Enrollment record not found');
+  }
+
+  const [result] = await db.execute(
+    'UPDATE program_enrollees SET current_status = ?, updated_at = NOW() WHERE enrollee_id = ?',
+    [status, enrolleeId]
+  );
+
+  return result;
+};
+

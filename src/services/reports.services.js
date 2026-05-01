@@ -133,16 +133,13 @@ exports.getProgramAccomplishment = async (month = null) => {
 // ══════════════════════════════════════════════════════
 // 2. BENEFICIARY MASTER LIST
 // ══════════════════════════════════════════════════════
-
 exports.getBeneficiaryMasterList = async (programType = null, status = null) => {
     let query = `
-        SELECT
+        SELECT 
             a.application_id,
             a.user_id,
             LOWER(a.program_type) AS program_type,
             a.status AS application_status,
-            a.applied_at,
-            a.approval_date,
             b.first_name,
             b.middle_name,
             b.last_name,
@@ -152,12 +149,12 @@ exports.getBeneficiaryMasterList = async (programType = null, status = null) => 
             b.gender,
             b.civil_status,
             b.contact_number,
-            b.address,
-            b.is_active
+            COALESCE(b.address, '') AS address
         FROM applications a
         LEFT JOIN beneficiaries b ON b.user_id = a.user_id
         WHERE 1=1
     `;
+    
     const params = [];
 
     if (programType) {
@@ -169,47 +166,26 @@ exports.getBeneficiaryMasterList = async (programType = null, status = null) => 
         params.push(status);
     }
 
-    query += ` ORDER BY a.program_type, b.last_name, b.first_name`;
+    query += ` ORDER BY b.last_name, b.first_name LIMIT 100`;
 
     const [rows] = await db.execute(query, params);
 
-    // Demographics summary
-    const demographics = {
-        total: rows.length,
-        male: rows.filter(r => r.gender && r.gender.toLowerCase() === 'male').length,
-        female: rows.filter(r => r.gender && r.gender.toLowerCase() === 'female').length,
+    const maleCount = rows.filter(r => r.gender && r.gender.toLowerCase() === 'male').length;
+    const femaleCount = rows.filter(r => r.gender && r.gender.toLowerCase() === 'female').length;
+    
+    return { 
+        beneficiaries: rows, 
+        demographics: {
+            total: rows.length,
+            male: maleCount,
+            female: femaleCount
+        },
         byProgram: {},
         byAge: { '15-17': 0, '18-24': 0, '25-34': 0, '35-44': 0, '45-59': 0, '60+': 0 },
-        byCivilStatus: {},
+        byCivilStatus: {}
     };
 
-    rows.forEach(r => {
-        // By program
-        const pt = r.program_type || 'unknown';
-        if (!demographics.byProgram[pt]) demographics.byProgram[pt] = { total: 0, male: 0, female: 0 };
-        demographics.byProgram[pt].total++;
-        if (r.gender && r.gender.toLowerCase() === 'male') demographics.byProgram[pt].male++;
-        if (r.gender && r.gender.toLowerCase() === 'female') demographics.byProgram[pt].female++;
-
-        // By age bracket
-        const age = r.age;
-        if (age !== null && age !== undefined) {
-            if (age < 18) demographics.byAge['15-17']++;
-            else if (age <= 24) demographics.byAge['18-24']++;
-            else if (age <= 34) demographics.byAge['25-34']++;
-            else if (age <= 44) demographics.byAge['35-44']++;
-            else if (age <= 59) demographics.byAge['45-59']++;
-            else demographics.byAge['60+']++;
-        }
-
-        // By civil status
-        const cs = (r.civil_status || 'Unknown').trim();
-        demographics.byCivilStatus[cs] = (demographics.byCivilStatus[cs] || 0) + 1;
-    });
-
-    return { beneficiaries: rows, demographics };
 };
-
 // ══════════════════════════════════════════════════════
 // 3. PAYROLL & DISBURSEMENT SUMMARY
 // ══════════════════════════════════════════════════════

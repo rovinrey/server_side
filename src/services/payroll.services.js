@@ -51,11 +51,56 @@ const ensureTables = async () => {
 
 // ── Helpers ──────────────────────────────────────────
 
-const getDailyWage = async () => {
+const getDailyWage = async (programType = null) => {
+    // If program type specified, try to get program-specific daily wage first
+    if (programType) {
+        const [progRows] = await db.execute(
+            `SELECT setting_value FROM system_settings WHERE setting_key = ?`,
+            [`${programType}_daily_wage`]
+        );
+        if (progRows.length > 0) {
+            return parseFloat(progRows[0].setting_value) || 435;
+        }
+    }
+    
+    // Fallback to default Tupad daily wage
     const [rows] = await db.execute(
         `SELECT setting_value FROM system_settings WHERE setting_key = 'tupad_daily_wage'`
     );
     return rows.length > 0 ? parseFloat(rows[0].setting_value) || 435 : 435;
+};
+
+// Set daily wage for a specific program
+exports.setDailyWage = async (programType, wage) => {
+    const wageNum = parseFloat(wage);
+    if (isNaN(wageNum) || wageNum <= 0) {
+        throw new Error('Daily wage must be a positive number');
+    }
+
+    const key = programType ? `${programType}_daily_wage` : 'tupad_daily_wage';
+    
+    await db.execute(
+        `INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+        [key, String(wageNum)]
+    );
+
+    return { program_type: programType, daily_wage: wageNum };
+};
+
+// Get daily wage settings for all programs
+exports.getAllDailyWages = async () => {
+    const [rows] = await db.execute(
+        `SELECT setting_key, setting_value FROM system_settings 
+         WHERE setting_key LIKE '%_daily_wage'`
+    );
+    
+    const wages = {};
+    for (const row of rows) {
+        const programType = row.setting_key.replace('_daily_wage', '');
+        wages[programType] = parseFloat(row.setting_value);
+    }
+    return wages;
 };
 
 const sanitiseMonth = (monthInput) => {
@@ -71,7 +116,6 @@ exports.generatePayroll = async (monthInput) => {
     await ensureTables();
     const selectedMonth = sanitiseMonth(monthInput);
     const startDate = `${selectedMonth}-01`;
-    const DAILY_WAGE = await getDailyWage();
 
     // Pull attendance-based payroll for all approved beneficiaries across all programs
     const [rows] = await db.execute(
@@ -83,6 +127,10 @@ exports.generatePayroll = async (monthInput) => {
                 NULLIF(TRIM(CONCAT_WS(' ', b.first_name, b.middle_name, b.last_name)), ''),
                 u.user_name
             ) AS full_name,
+            b.gcash_number,
+            b.bank_name,
+            b.bank_account_number,
+            b.payout_ready,
             COUNT(*) AS days_worked
         FROM attendance_records ar
         INNER JOIN users u ON u.user_id = ar.user_id
@@ -94,15 +142,28 @@ exports.generatePayroll = async (monthInput) => {
         WHERE ar.status = 'Present'
             AND ar.attendance_date >= ?
             AND ar.attendance_date <= LAST_DAY(?)
-        GROUP BY ar.user_id, a.program_type, full_name
+        GROUP BY ar.user_id, a.program_type, full_name, b.gcash_number, b.bank_name, b.bank_account_number, b.payout_ready
         ORDER BY a.program_type, full_name
         `,
         [startDate, startDate, startDate]
     );
 
-    // Upsert payroll_records
+    // Group by program_type to get unique program types and calculate per-program wages
+    const programDailyWages = {};
     for (const row of rows) {
-        const totalPayout = Number(row.days_worked) * DAILY_WAGE;
+        const progType = row.program_type;
+        if (!programDailyWages[progType]) {
+            programDailyWages[progType] = await getDailyWage(progType);
+        }
+    }
+
+    // Upsert payroll_records with per-program daily wages
+    let generated = 0;
+    for (const row of rows) {
+        const progType = row.program_type || 'tupad';
+        const dailyWage = programDailyWages[progType] || 435;
+        const totalPayout = Number(row.days_worked) * dailyWage;
+        
         await db.execute(
             `INSERT INTO payroll_records (user_id, program_type, payroll_month, days_worked, daily_wage, total_payout)
              VALUES (?, ?, ?, ?, ?, ?)
@@ -111,11 +172,16 @@ exports.generatePayroll = async (monthInput) => {
                 daily_wage = VALUES(daily_wage),
                 total_payout = VALUES(total_payout),
                 updated_at = NOW()`,
-            [row.user_id, row.program_type, selectedMonth, row.days_worked, DAILY_WAGE, totalPayout]
+            [row.user_id, row.program_type, selectedMonth, row.days_worked, dailyWage, totalPayout]
         );
+        generated++;
     }
 
-    return { generated: rows.length, month: selectedMonth, dailyWage: DAILY_WAGE };
+    return { 
+        generated, 
+        month: selectedMonth, 
+        dailyWages: programDailyWages 
+    };
 };
 
 // ── Get payroll for a specific month, optionally filtered by program ─

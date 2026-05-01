@@ -106,3 +106,27 @@ exports.getBeneficiaryPayouts = async (req, res) => {
         res.status(500).json({ message: error.message || 'Error fetching payouts' });
     }
 };
+
+exports.setDailyWage = async (req, res) => {
+    try {
+        const { program_type, wage } = req.body;
+        if (!wage) {
+            return res.status(400).json({ message: 'Daily wage is required' });
+        }
+        const result = await payrollService.setDailyWage(program_type || null, wage);
+        res.status(200).json({ message: 'Daily wage updated', ...result });
+    } catch (error) {
+        console.error('Error setting daily wage:', error.message);
+        res.status(500).json({ message: error.message || 'Error setting daily wage' });
+    }
+};
+
+exports.getAllDailyWages = async (req, res) => {
+    try {
+        const wages = await payrollService.getAllDailyWages();
+        res.status(200).json(wages);
+    } catch (error) {
+        console.error('Error fetching daily wages:', error.message);
+        res.status(500).json({ message: error.message || 'Error fetching daily wages' });
+    }
+};
