@@ -1,165 +1,72 @@
 #!/usr/bin/env node
-
-/**
- * TUPAD AND PANGKABUHAYAN MANAGEMENT SYSTEM
- * Admin Account Initialization Script
- */
-
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
-const readline = require('readline');
-const fs = require('fs');
-const path = require('path');
+
+// Load .env for local testing (Railway provides these automatically in the cloud)
 require('dotenv').config();
 
-// Lock file (prevents multiple admin creation)
-const LOCK_FILE = path.join(__dirname, '.admin_created');
-
-// Colors
-const colors = {
-    reset: '\x1b[0m',
-    red: '\x1b[31m',
-    green: '\x1b[32m',
-    yellow: '\x1b[33m',
-    cyan: '\x1b[36m',
-    bold: '\x1b[1m',
-};
-
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-});
-
-// Prompt text input
-function prompt(question) {
-    return new Promise((resolve) =>
-        rl.question(question, (ans) => resolve(ans.trim()))
-    );
-}
-
-// Masked password input
-function promptPassword(question) {
-    return new Promise((resolve) => {
-        const stdin = process.stdin;
-        const stdout = process.stdout;
-
-        stdout.write(question);
-        stdin.resume();
-        stdin.setRawMode(true);
-
-        let password = '';
-
-        function onData(char) {
-            char = char.toString();
-
-            switch (char) {
-                case '\n':
-                case '\r':
-                case '\u0004':
-                    stdin.setRawMode(false);
-                    stdin.pause();
-                    stdout.write('\n');
-                    stdin.removeListener('data', onData);
-                    resolve(password);
-                    break;
-
-                case '\u0003':
-                    process.exit();
-
-                case '\x7f':
-                    if (password.length > 0) {
-                        password = password.slice(0, -1);
-                        stdout.write('\b \b');
-                    }
-                    break;
-
-                default:
-                    password += char;
-                    stdout.write('*');
-            }
-        }
-
-        stdin.on('data', onData);
-    });
-}
-
 async function createAdmin() {
-    // Prevent re-run
-    if (fs.existsSync(LOCK_FILE)) {
-        console.error(
-            `\n${colors.red}${colors.bold}🛑 Admin already created. Script locked.${colors.reset}\n`
-        );
-        process.exit(0);
-    }
-
     let connection;
-
     try {
-        console.log(`\n${colors.bold}${colors.cyan}=== ADMIN SETUP ===${colors.reset}\n`);
+        // 1. Get credentials from Environment Variables
+        // These MUST be set in your Railway Service Variables tab
+        const name = process.env.ADMIN_NAME || 'System Admin';
+        const email = process.env.ADMIN_EMAIL;
+        const password = process.env.ADMIN_PASSWORD;
+        const phone = process.env.ADMIN_PHONE || null;
 
-        // 🔥 FIXED: Use Railway MYSQL_URL ONLY
-        if (!process.env.MYSQL_URL) {
-            throw new Error("MYSQL_URL is missing in environment variables");
+        if (!email || !password) {
+            throw new Error('MISSING REQUIRED VARS: Please set ADMIN_EMAIL and ADMIN_PASSWORD in Railway Variables.');
         }
 
-        connection = await mysql.createConnection(process.env.MYSQL_URL);
+        // 2. Build connection using Railway's MYSQL_URL
+        if (!process.env.MYSQL_PUBLIC_URL) {
+            throw new Error('MYSQL_PUBLIC_URL not found. Ensure your MySQL service is linked.');
+        }
 
-        // Input
-        const name =
-            (await prompt(`${colors.cyan}Full Name [Admin]:${colors.reset} `)) ||
-            'System Administrator';
+        const dbUrl = new URL(process.env.MYSQL_PUBLIC_URL);
+        dbUrl.searchParams.set('charset', 'utf8mb4');
+        
+        console.log('⏳ Connecting to MySQL...');
+        connection = await mysql.createConnection(dbUrl.toString());
 
-        const email = await prompt(`${colors.cyan}Email:${colors.reset} `);
-        const phone = await prompt(`${colors.cyan}Phone (optional):${colors.reset} `);
-
-        if (!email) throw new Error("Email is required");
-
-        // Check existing admin
-        const [rows] = await connection.execute(
-            'SELECT user_id FROM users WHERE role = ? LIMIT 1',
-            ['admin']
+        // 3. Check if admin already exists
+        const [existing] = await connection.execute(
+            'SELECT user_id FROM users WHERE role = ? OR email = ?',
+            ['admin', email]
         );
 
-        if (rows.length > 0) {
-            fs.writeFileSync(
-                LOCK_FILE,
-                `Admin already exists - locked at ${new Date().toISOString()}`
+        const hash = await bcrypt.hash(password, 12);
+
+        if (existing.length > 0) {
+            console.log('🔄 Admin/Email already exists. Updating credentials...');
+            await connection.query(
+                'UPDATE users SET user_name = ?, password = ?, email = ? WHERE user_id = ?',
+                [name, hash, email, existing[0].user_id]
             );
-            throw new Error("Admin already exists in database");
+        } else {
+            console.log('✨ Creating new admin account...');
+            await connection.query(
+                `INSERT INTO users (user_name, email, phone, password, role)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [name, email, phone, hash, 'admin']
+            );
         }
 
-        // Password
-        const password = await promptPassword(
-            `${colors.cyan}Password:${colors.reset} `
+        // 4. Final Verification
+        const [verify] = await connection.execute(
+            'SELECT user_id, LENGTH(password) as len FROM users WHERE email = ?',
+            [email]
         );
+        
+        console.log(`✅ Success! Stored hash length: ${verify[0].len}`);
+        console.log(`👤 Admin ID: ${verify[0].user_id}`);
 
-        if (password.length < 6) {
-            throw new Error("Password must be at least 6 characters");
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 12);
-
-        // Insert admin
-        await connection.execute(
-            `INSERT INTO users (user_name, email, phone, password, role)
-             VALUES (?, ?, ?, ?, ?)`,
-            [name, email, phone || null, hashedPassword, 'admin']
-        );
-
-        // Lock file
-        fs.writeFileSync(
-            LOCK_FILE,
-            `Admin created: ${email}\nDate: ${new Date().toISOString()}`
-        );
-
-        console.log(
-            `\n${colors.green}${colors.bold}✅ Admin created successfully!${colors.reset}\n`
-        );
     } catch (err) {
-        console.error(`\n${colors.red}❌ Error:${colors.reset}`, err.message, '\n');
+        console.error('❌ Error:', err.message);
+        process.exit(1); // Exit with error for Railway logs
     } finally {
         if (connection) await connection.end();
-        rl.close();
     }
 }
 

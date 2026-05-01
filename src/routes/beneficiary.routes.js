@@ -26,4 +26,12 @@ router.get('/enroll/:applicationId/status', authMiddleware, requireAdminOrStaff,
 router.get('/program/:programId/enrollees', authMiddleware, requireAdminOrStaff, beneficiaryController.getProgramEnrollees);
 router.put('/enroll/:enrolleeId/status', authMiddleware, requireAdminOrStaff, beneficiaryController.updateEnrollmentStatus);
 
+// =============================================
+// Beneficiary Profiling routes (authenticated beneficiary self-service)
+// =============================================
+router.get('/profile/me', authMiddleware, beneficiaryController.getMyProfile);
+router.put('/profile/me', authMiddleware, beneficiaryController.updateMyProfile);
+router.post('/profile/check-duplicate', authMiddleware, beneficiaryController.checkDuplicate);
+router.get('/profile/program-history', authMiddleware, beneficiaryController.getMyProgramHistory);
+
 module.exports = router;

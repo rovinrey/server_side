@@ -40,9 +40,11 @@ async function seedAdmin() {
         // 2. Hash and Insert (Including user_name)
         const hashedPassword = await bcrypt.hash(adminPassword, 12);
 
-        await connection.execute(
+        // Use query() instead of execute() to avoid prepared-statement truncation
+        // of $-prefixed bcrypt hash strings in mysql2
+        await connection.query(
             'INSERT INTO users (user_name, email, password, role) VALUES (?, ?, ?, ?)',
-            ['System Administrator', adminEmail, hashedPassword, 'admin']
+            ['System Administrator', adminEmail, String(hashedPassword), 'admin']
         );
 
         console.log('✅ Admin user seeded successfully!');

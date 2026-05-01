@@ -332,3 +332,67 @@ exports.updateEnrollmentStatus = async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 };
+
+// =============================================
+// Beneficiary Profiling endpoints
+// =============================================
+
+// Get current user's beneficiary profile (auto-creates if none)
+exports.getMyProfile = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const profile = await beneficiaryService.getOrCreateBeneficiaryProfile(userId);
+        res.json(profile);
+    } catch (err) {
+        console.error('GET PROFILE ERROR:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+};
+
+// Update current user's beneficiary profile
+exports.updateMyProfile = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const updated = await beneficiaryService.updateBeneficiaryProfile(userId, req.body);
+        if (!updated) {
+            return res.status(404).json({ message: 'Beneficiary profile not found' });
+        }
+        res.json({ message: 'Profile updated successfully' });
+    } catch (err) {
+        console.error('UPDATE PROFILE ERROR:', err.message);
+        if (err.message === 'No fields to update') {
+            return res.status(400).json({ message: err.message });
+        }
+        res.status(500).json({ message: err.message });
+    }
+};
+
+// Check for duplicate beneficiary registration
+exports.checkDuplicate = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { birth_date } = req.body;
+
+        if (!birth_date) {
+            return res.status(400).json({ message: 'birth_date is required' });
+        }
+
+        const result = await beneficiaryService.checkDuplicateBeneficiary(userId, birth_date);
+        res.json(result);
+    } catch (err) {
+        console.error('CHECK DUPLICATE ERROR:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+};
+
+// Get current user's full program history
+exports.getMyProgramHistory = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const history = await beneficiaryService.getBeneficiaryProgramHistory(userId);
+        res.json({ history });
+    } catch (err) {
+        console.error('GET PROGRAM HISTORY ERROR:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+};

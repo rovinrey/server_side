@@ -67,6 +67,7 @@ const signup = async (body) => {
         phone = trimmedIdentifier;
     }
 
+    // check if email or phone already exists
     try {
         const [existingUsers] = await db.execute(
             'SELECT user_id FROM users WHERE email = ? OR phone = ?',
@@ -81,9 +82,11 @@ const signup = async (body) => {
         const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
         // Role is always 'beneficiary' — never accept role from client input
-        await db.execute(
+        // Use db.query instead of db.execute to avoid prepared-statement truncation
+        // of $-prefixed bcrypt hashes in mysql2
+        await db.query(
             'INSERT INTO users (user_name, email, phone, password, role) VALUES (?, ?, ?, ?, ?)',
-            [user_name.trim(), email, phone, hashedPassword, 'beneficiary']
+            [user_name.trim(), email, phone, String(hashedPassword), 'beneficiary']
         );
 
         return { message: 'Account created successfully!' };
@@ -96,11 +99,14 @@ const signup = async (body) => {
 };
 
 // --- LOGIN FUNCTION ---
+// --- LOGIN FUNCTION ---
 const login = async (body) => {
     
     const rawIdentifier = body.identifier || body.email || body.phone || null;
     const identifier = rawIdentifier ? String(rawIdentifier).trim() : null;
-    const password = body.password || null;
+    
+    // FIX 1: Trim the password to remove accidental trailing spaces like "PESOadmin@capstone2 "
+    const password = body.password ? String(body.password).trim() : null;
 
     // Generic error message to prevent user enumeration
     const INVALID_CREDENTIALS = 'Invalid email/phone or password';
@@ -114,8 +120,8 @@ const login = async (body) => {
     try {
         const identifierDigits = identifier.replace(/\D/g, '');
 
-        // Only select the columns we actually need — never SELECT *
-        const [users] = await db.execute(
+        // FIX 2: Use db.query instead of db.execute to ensure the bcrypt hash ($) is read correctly
+        const [users] = await db.query(
             `SELECT user_id, user_name, email, phone, password, role
              FROM users
              WHERE email = ?
@@ -133,6 +139,8 @@ const login = async (body) => {
         }
 
         const user = users[0];
+        
+        // Bcrypt compare will now work because 'password' is trimmed
         const isPasswordValid = await bcrypt.compare(password, user.password);
 
         if (!isPasswordValid) {
@@ -287,9 +295,9 @@ const changePassword = async (userId, currentPassword, newPassword) => {
 
         // Hash new password and update
         const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
-        await db.execute(
+        await db.query(
             'UPDATE users SET password = ? WHERE user_id = ?',
-            [hashedPassword, userId]
+            [String(hashedPassword), userId]
         );
 
         return { message: 'Password changed successfully!' };
@@ -387,9 +395,11 @@ const createUser = async (adminId, adminRole, body) => {
         const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
         // Insert user with specified role
-        await db.execute(
+        // Use db.query instead of db.execute to avoid prepared-statement truncation
+        // of $-prefixed bcrypt hashes in mysql2
+        await db.query(
             'INSERT INTO users (user_name, email, phone, password, role) VALUES (?, ?, ?, ?, ?)',
-            [user_name.trim(), email, phone, hashedPassword, role]
+            [user_name.trim(), email, phone, String(hashedPassword), role]
         );
 
         return { message: `${role} user created successfully!` };

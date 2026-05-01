@@ -40,7 +40,10 @@ const resetPassword = async (token, newPassword) => {
     }
     const user = users[0];
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await db.execute('UPDATE users SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE user_id = ?', [hashedPassword, user.user_id]);
+    await db.query(
+        'UPDATE users SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE user_id = ?',
+        [String(hashedPassword), user.user_id]
+    );
     return { message: 'Password reset successful!' };
 };
 

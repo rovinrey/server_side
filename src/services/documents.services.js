@@ -68,7 +68,7 @@ exports.deleteDocument = async (userId, documentId) => {
         'SELECT file_path FROM beneficiary_documents WHERE document_id = ? AND user_id = ?',
         [documentId, userId]
     );
-    
+
     if (rows.length === 0) return false;
 
     // Clean up the physical file to prevent storage bloat
@@ -80,4 +80,15 @@ exports.deleteDocument = async (userId, documentId) => {
 
     await db.query('DELETE FROM beneficiary_documents WHERE document_id = ?', [documentId]);
     return true;
+};
+
+/**
+ * Fetches all documents for a specific user across all programs.
+ */
+exports.getAllDocumentsByUser = async (userId) => {
+    const [rows] = await db.query(
+        'SELECT * FROM beneficiary_documents WHERE user_id = ? ORDER BY uploaded_at ASC',
+        [userId]
+    );
+    return rows;
 };

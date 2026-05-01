@@ -958,6 +958,175 @@ exports.adminAddBeneficiary = async (data) => {
   }
 };
 
+// =============================================
+// Beneficiary Profiling
+// =============================================
+
+/**
+ * Get or create a beneficiary profile for the logged-in user.
+ * Used so beneficiaries can view/edit their own profiling data.
+ */
+exports.getOrCreateBeneficiaryProfile = async (userId) => {
+    const [rows] = await db.query(
+        'SELECT * FROM beneficiaries WHERE user_id = ?',
+        [userId]
+    );
+
+    if (rows.length > 0) {
+        return rows[0];
+    }
+
+    // Auto-create from users table + most recent approved application
+    const [userRows] = await db.query(
+        'SELECT user_name, email, phone FROM users WHERE user_id = ?',
+        [userId]
+    );
+
+    if (userRows.length === 0) {
+        throw new Error('User not found');
+    }
+
+    const user = userRows[0];
+    // Parse first/last name from user_name (format: "FirstName LastName")
+    const nameParts = (user.user_name || '').trim().split(/\s+/);
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    const [result] = await db.query(
+        `INSERT INTO beneficiaries (user_id, first_name, last_name, contact_number, address, is_active)
+         VALUES (?, ?, ?, ?, '', 1)`,
+        [userId, firstName, lastName, user.phone]
+    );
+
+    const [newRows] = await db.query(
+        'SELECT * FROM beneficiaries WHERE beneficiary_id = ?',
+        [result.insertId]
+    );
+
+    return newRows[0];
+};
+
+/**
+ * Update a beneficiary's profiling data
+ */
+exports.updateBeneficiaryProfile = async (userId, data) => {
+    const {
+        first_name, middle_name, last_name, extension_name,
+        birth_date, gender, civil_status, contact_number, address
+    } = data;
+
+    const fields = [];
+    const values = [];
+
+    if (first_name !== undefined)    { fields.push('first_name = ?');       values.push(first_name); }
+    if (middle_name !== undefined)  { fields.push('middle_name = ?');      values.push(middle_name); }
+    if (last_name !== undefined)     { fields.push('last_name = ?');        values.push(last_name); }
+    if (extension_name !== undefined){ fields.push('extension_name = ?');    values.push(extension_name); }
+    if (birth_date !== undefined)    { fields.push('birth_date = ?');       values.push(birth_date); }
+    if (gender !== undefined)       { fields.push('gender = ?');          values.push(gender); }
+    if (civil_status !== undefined) { fields.push('civil_status = ?');    values.push(civil_status); }
+    if (contact_number !== undefined){ fields.push('contact_number = ?');  values.push(contact_number); }
+    if (address !== undefined)      { fields.push('address = ?');         values.push(address); }
+
+    if (fields.length === 0) {
+        throw new Error('No fields to update');
+    }
+
+    values.push(userId);
+
+    const [result] = await db.query(
+        `UPDATE beneficiaries SET ${fields.join(', ')} WHERE user_id = ?`,
+        values
+    );
+
+    return result.affectedRows > 0;
+};
+
+/**
+ * Check for potential duplicate beneficiaries.
+ * Checks by exact name + birth_date match OR same user_id already has a profile.
+ */
+exports.checkDuplicateBeneficiary = async (userId, birthDate) => {
+    // First check if this user already has a beneficiary record
+    const [existingByUser] = await db.query(
+        'SELECT beneficiary_id FROM beneficiaries WHERE user_id = ?',
+        [userId]
+    );
+
+    if (existingByUser.length > 0) {
+        return {
+            is_duplicate: false,
+            reason: 'already_registered',
+            beneficiary_id: existingByUser[0].beneficiary_id
+        };
+    }
+
+    // Parse first/last from users table
+    const [userRows] = await db.query(
+        'SELECT user_name FROM users WHERE user_id = ?',
+        [userId]
+    );
+
+    if (userRows.length === 0) {
+        throw new Error('User not found');
+    }
+
+    const nameParts = (userRows[0].user_name || '').trim().split(/\s+/);
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    // Check for same name + birth_date in system (different user)
+    const [duplicateCheck] = await db.query(
+        `SELECT beneficiary_id, first_name, last_name, birth_date
+         FROM beneficiaries
+         WHERE first_name = ? AND last_name = ? AND birth_date = ? AND user_id != ?
+         LIMIT 1`,
+        [firstName, lastName, birthDate, userId]
+    );
+
+    if (duplicateCheck.length > 0) {
+        return {
+            is_duplicate: true,
+            reason: 'name_and_birthdate_match',
+            matched_beneficiary_id: duplicateCheck[0].beneficiary_id
+        };
+    }
+
+    return { is_duplicate: false, reason: null, beneficiary_id: null };
+};
+
+/**
+ * Get a beneficiary's full program history across all programs.
+ * Returns each program they've applied to/enrolled in, with status.
+ */
+exports.getBeneficiaryProgramHistory = async (userId) => {
+    const [applications] = await db.query(
+        `SELECT
+            a.application_id,
+            a.program_type,
+            a.status,
+            a.applied_at,
+            a.approval_date,
+            a.rejection_reason,
+            pe.enrollee_id,
+            pe.current_status AS enrollee_status,
+            pe.enrollment_date,
+            pe.completion_date,
+            p.program_name,
+            p.location,
+            p.start_date,
+            p.end_date
+         FROM applications a
+         LEFT JOIN program_enrollees pe ON pe.application_id = a.application_id
+         LEFT JOIN programs p ON p.program_id = pe.program_id
+         WHERE a.user_id = ?
+         ORDER BY a.applied_at DESC`,
+        [userId]
+    );
+
+    return applications;
+};
+
 /**
  * Admin updates beneficiary data.
  */
