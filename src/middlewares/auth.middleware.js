@@ -52,4 +52,4 @@ const requireRole = (...allowedRoles) => {
 };
 
 module.exports = authenticate;
-module.exports.requireRole = requireRole;
+authenticate.requireRole = requireRole;
