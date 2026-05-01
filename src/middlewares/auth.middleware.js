@@ -1,8 +1,7 @@
 // middlewares/authMiddleware.js
 const jwt = require('jsonwebtoken');
 
-module.exports = (req, res, next) => {
-    
+const authenticate = (req, res, next) => {
     // Allow preflight requests to pass through without authentication
     if (req.method === 'OPTIONS') return next();
 
@@ -36,3 +35,21 @@ module.exports = (req, res, next) => {
         return res.status(403).json({ message: 'Invalid token' });
     }
 };
+
+// Middleware factory for role-based access control
+const requireRole = (...allowedRoles) => {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+        
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({ message: 'Forbidden: Admin access required' });
+        }
+        
+        next();
+    };
+};
+
+module.exports = authenticate;
+module.exports.requireRole = requireRole;

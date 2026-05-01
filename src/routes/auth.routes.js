@@ -24,6 +24,7 @@ router.put('/updateProfile', authMiddleware, authController.updateProfile);
 router.put('/changePassword', authMiddleware, authController.changePassword);
 
 // Admin-only route: Create admin or staff user
-router.post('/create-user', authMiddleware, authController.createUser);
+// Uses authMiddleware to authenticate, then checks user has 'admin' role
+router.post('/create-user', authMiddleware, authMiddleware.requireRole('admin'), authController.createUser);
 
 module.exports = router;
