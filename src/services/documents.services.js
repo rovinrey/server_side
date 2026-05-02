@@ -1,6 +1,5 @@
 const db = require('../../config');
 const fs = require('fs').promises; // Senior tip: Use promises for non-blocking file I/O
-const path = require('path');
 
 /**
  * VERIFICATION LOGIC
@@ -89,6 +88,85 @@ exports.getAllDocumentsByUser = async (userId) => {
     const [rows] = await db.query(
         'SELECT * FROM beneficiary_documents WHERE user_id = ? ORDER BY uploaded_at ASC',
         [userId]
+    );
+    return rows;
+};
+
+/**
+ * Inserts a new row or replaces file metadata when (user_id, program_type, document_type) already exists.
+ * @param {number} userId
+ * @param {string} programType
+ * @param {string} documentType
+ * @param {Express.Multer.File} file
+ * @returns {Promise<number>} document_id
+ */
+exports.uploadDocument = async (userId, programType, documentType, file) => {
+    const filePath = file.path;
+    const originalName = file.originalname;
+    const fileSize = file.size;
+    const mimeType = file.mimetype;
+
+    const [existing] = await db.query(
+        'SELECT document_id, file_path FROM beneficiary_documents WHERE user_id = ? AND program_type = ? AND document_type = ?',
+        [userId, programType, documentType]
+    );
+
+    if (existing.length > 0) {
+        const oldPath = existing[0].file_path;
+        if (oldPath && oldPath !== filePath) {
+            try {
+                await fs.unlink(oldPath);
+            } catch (err) {
+                console.error('Old document file unlink failed:', err.message);
+            }
+        }
+        await db.query(
+            `UPDATE beneficiary_documents
+             SET original_name = ?, file_path = ?, file_size = ?, mime_type = ?,
+                 status = 'pending', remarks = NULL, verified_by = NULL, verified_at = NULL,
+                 uploaded_at = CURRENT_TIMESTAMP
+             WHERE document_id = ?`,
+            [originalName, filePath, fileSize, mimeType, existing[0].document_id]
+        );
+        return existing[0].document_id;
+    }
+
+    const [result] = await db.query(
+        `INSERT INTO beneficiary_documents
+            (user_id, program_type, document_type, original_name, file_path, file_size, mime_type, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+        [userId, programType, documentType, originalName, filePath, fileSize, mimeType]
+    );
+    return result.insertId;
+};
+
+/**
+ * Documents for the application's beneficiary (same rows as admin getApplicationDocuments).
+ * @param {string|number} applicationId
+ */
+exports.getDocumentsByApplicationId = async (applicationId) => {
+    const [rows] = await db.query(
+        `
+        SELECT
+            bd.document_id,
+            bd.user_id,
+            bd.program_type,
+            bd.document_type,
+            bd.original_name,
+            bd.file_path,
+            bd.file_size,
+            bd.mime_type,
+            bd.uploaded_at,
+            bd.status,
+            bd.remarks,
+            bd.verified_by,
+            bd.verified_at
+        FROM beneficiary_documents bd
+        JOIN applications a ON bd.user_id = a.user_id
+        WHERE a.application_id = ?
+        ORDER BY bd.uploaded_at DESC
+        `,
+        [applicationId]
     );
     return rows;
 };

@@ -7,6 +7,102 @@ const gipService = require('../services/gip.services');
 const jobseekerService = require('../services/jobseeker.services');
 const beneficiaryService = require('../services/beneficiary.services');
 
+/** @param {string|Date|null|undefined} birthDate */
+function annexCalculateAge(birthDate) {
+    if (!birthDate) return '';
+    const birth = new Date(birthDate);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+        age--;
+    }
+    return age;
+}
+
+/**
+ * @param {import('exceljs').Worksheet} ws
+ * @param {number} headerRow
+ * @param {{ width: number }[]} headers
+ */
+function annexWriteHeaderRow(ws, headerRow, headers) {
+    headers.forEach((h, i) => {
+        ws.getColumn(i + 1).width = h.width;
+    });
+    const headerRowObj = ws.getRow(headerRow);
+    headers.forEach((h, i) => {
+        const cell = headerRowObj.getCell(i + 1);
+        cell.value = h.header;
+        cell.font = { bold: true, size: 9, name: 'Arial' };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+        cell.border = {
+            top: { style: 'thin' },
+            bottom: { style: 'thin' },
+            left: { style: 'thin' },
+            right: { style: 'thin' }
+        };
+    });
+    headerRowObj.height = 30;
+}
+
+/**
+ * @param {import('exceljs').Worksheet} ws
+ * @param {number} headerRow
+ * @param {unknown[][]} rows
+ */
+function annexWriteDataRows(ws, headerRow, rows) {
+    rows.forEach((values, index) => {
+        const dataRow = ws.getRow(headerRow + 1 + index);
+        values.forEach((val, i) => {
+            const cell = dataRow.getCell(i + 1);
+            cell.value = val;
+            cell.font = { size: 9, name: 'Arial' };
+            cell.alignment = { vertical: 'middle', wrapText: true };
+            cell.border = {
+                top: { style: 'thin' },
+                bottom: { style: 'thin' },
+                left: { style: 'thin' },
+                right: { style: 'thin' }
+            };
+        });
+        dataRow.height = 20;
+    });
+}
+
+/**
+ * @param {import('exceljs').Worksheet} ws
+ * @param {string} lastCol e.g. 'N', 'P'
+ * @param {number} sigRow
+ */
+function annexWriteSignatureBlock(ws, lastCol, sigRow) {
+    ws.mergeCells(`A${sigRow}:D${sigRow}`);
+    ws.getCell(`A${sigRow}`).value = 'Prepared by:';
+    ws.getCell(`A${sigRow}`).font = { size: 10, name: 'Arial' };
+
+    ws.mergeCells(`H${sigRow}:${lastCol}${sigRow}`);
+    ws.getCell(`H${sigRow}`).value = 'Noted by:';
+    ws.getCell(`H${sigRow}`).font = { size: 10, name: 'Arial' };
+
+    ws.mergeCells(`A${sigRow + 2}:D${sigRow + 2}`);
+    ws.getCell(`A${sigRow + 2}`).value = '______________________________';
+    ws.getCell(`A${sigRow + 2}`).alignment = { horizontal: 'center' };
+
+    ws.mergeCells(`A${sigRow + 3}:D${sigRow + 3}`);
+    ws.getCell(`A${sigRow + 3}`).value = 'PESO Manager';
+    ws.getCell(`A${sigRow + 3}`).font = { size: 9, name: 'Arial', italic: true };
+    ws.getCell(`A${sigRow + 3}`).alignment = { horizontal: 'center' };
+
+    ws.mergeCells(`H${sigRow + 2}:${lastCol}${sigRow + 2}`);
+    ws.getCell(`H${sigRow + 2}`).value = '______________________________';
+    ws.getCell(`H${sigRow + 2}`).alignment = { horizontal: 'center' };
+
+    ws.mergeCells(`H${sigRow + 3}:${lastCol}${sigRow + 3}`);
+    ws.getCell(`H${sigRow + 3}`).value = 'Municipal Mayor / Authorized Representative';
+    ws.getCell(`H${sigRow + 3}`).font = { size: 9, name: 'Arial', italic: true };
+    ws.getCell(`H${sigRow + 3}`).alignment = { horizontal: 'center' };
+}
+
 // tupad application endpoint
 exports.applyToTupad = async (req, res) => {
     try {
@@ -289,7 +385,14 @@ exports.getApplicationsByStatus = async (req, res) => {
             const [applications] = await beneficiaryService.getAllApplications();
             return res.status(200).json(applications);
         }
-        const [applications] = await beneficiaryService.getApplicationsByStatus(status, programType || null);
+        const raw = String(status).trim();
+        const statusCanon = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected' };
+        const statusNorm = statusCanon[raw.toLowerCase()] || raw;
+        const includeEnrolledApproved =
+            req.user?.role === 'admin' && statusNorm === 'Approved';
+        const [applications] = await beneficiaryService.getApplicationsByStatus(statusNorm, programType || null, {
+            includeEnrolledApproved,
+        });
         res.status(200).json(applications);
     } catch (error) {
         console.error("Error getting applications by status:", error.message);
@@ -323,7 +426,13 @@ exports.getApplicationEnrollmentStatus = async (req, res) => {
 exports.approveApplication = async (req, res) => {
     try {
         const { id } = req.params;
+        // #region agent log
+        fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H1',location:'application.controller.js:approveApplication:entry',message:'approveApplication endpoint hit',data:{applicationId:Number(id)||null,actorRole:req.user?.role||null},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         const result = await beneficiaryService.approveApplication(id);
+        // #region agent log
+        fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H1',location:'application.controller.js:approveApplication:afterService',message:'approveApplication service completed',data:{applicationId:result?.applicationId||null,userId:result?.userId||null,programType:result?.programType||null},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         res.status(200).json({
             message: "Application approved successfully",
             applicationId: result.applicationId,
@@ -331,7 +440,10 @@ exports.approveApplication = async (req, res) => {
             programType: result.programType
         });
     } catch (error) {
-        console.error("Error approving application:", error.message);
+        console.error("Error approving application:", error.message, error.sqlMessage || "");
+        if (error.message === 'Invalid application ID') {
+            return res.status(400).json({ message: error.message });
+        }
         if (error.message === 'Application not found') {
             return res.status(404).json({ message: "Application not found" });
         }
@@ -426,6 +538,12 @@ exports.rejectApplication = async (req, res) => {
         res.status(200).json({ message: "Application rejected successfully" });
     } catch (error) {
         console.error("Error rejecting application:", error.message);
+        if (error.message === 'Invalid application ID') {
+            return res.status(400).json({ message: error.message });
+        }
+        if (error.message === 'Application not found') {
+            return res.status(404).json({ message: "Application not found" });
+        }
         res.status(500).json({ message: "Error rejecting application", error: error.message });
     }
 };
@@ -685,19 +803,6 @@ exports.exportAnnexD = async (req, res) => {
             return res.status(403).json({ message: 'Only admin can export Annex D' });
         }
 
-        const { programType, status } = req.query;
-
-        // Fetch approved TUPAD beneficiaries with full details
-        const params = [];
-        const conditions = ["a.status = 'Approved'"];
-
-        if (programType) {
-            conditions.push('a.program_type = ?');
-            params.push(programType);
-        } else {
-            conditions.push("a.program_type = 'tupad'");
-        }
-
         const query = `
             SELECT
                 b.beneficiary_id,
@@ -724,11 +829,11 @@ exports.exportAnnexD = async (req, res) => {
             FROM applications a
             LEFT JOIN beneficiaries b ON b.user_id = a.user_id
             LEFT JOIN tupad_details td ON td.application_id = a.application_id
-            WHERE ${conditions.join(' AND ')}
+            WHERE a.status = 'Approved' AND a.program_type = 'tupad'
             ORDER BY b.last_name ASC, b.first_name ASC
         `;
 
-        const [rows] = await db.execute(query, params);
+        const [rows] = await db.execute(query);
 
         // Build Annex D Excel
         const workbook = new ExcelJS.Workbook();
@@ -747,28 +852,28 @@ exports.exportAnnexD = async (req, res) => {
 
         // ── Header rows ──
         // Row 1: Title
-        ws.mergeCells('A1:N1');
+        ws.mergeCells('A1:V1');
         const titleCell = ws.getCell('A1');
         titleCell.value = 'ANNEX D';
         titleCell.font = { bold: true, size: 14, name: 'Arial' };
         titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
         // Row 2: Subtitle
-        ws.mergeCells('A2:N2');
+        ws.mergeCells('A2:V2');
         const subtitleCell = ws.getCell('A2');
         subtitleCell.value = 'LIST OF TUPAD BENEFICIARIES';
         subtitleCell.font = { bold: true, size: 12, name: 'Arial' };
         subtitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
         // Row 3: Program Info
-        ws.mergeCells('A3:N3');
+        ws.mergeCells('A3:V3');
         const programCell = ws.getCell('A3');
         programCell.value = 'TUPAD (Tulong Panghanapbuhay sa Ating Disadvantaged/Displaced Workers)';
         programCell.font = { italic: true, size: 10, name: 'Arial' };
         programCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
         // Row 4: blank spacer
-        ws.mergeCells('A4:N4');
+        ws.mergeCells('A4:V4');
 
         // Row 5: Info fields
         ws.mergeCells('A5:D5');
@@ -777,130 +882,165 @@ exports.exportAnnexD = async (req, res) => {
         ws.mergeCells('E5:H5');
         ws.getCell('E5').value = 'Date: ' + new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
         ws.getCell('E5').font = { size: 10, name: 'Arial' };
-        ws.mergeCells('I5:N5');
+        ws.mergeCells('I5:V5');
         ws.getCell('I5').value = 'Project: ________________________________________';
         ws.getCell('I5').font = { size: 10, name: 'Arial' };
 
         // Row 6: blank spacer
-        ws.mergeCells('A6:N6');
+        ws.mergeCells('A6:V6');
 
-        // Row 7: Column headers
-        const headerRow = 7;
-        const headers = [
-            { key: 'no', header: 'No.', width: 6 },
-            { key: 'last_name', header: 'LAST NAME', width: 16 },
-            { key: 'first_name', header: 'FIRST NAME', width: 16 },
-            { key: 'middle_name', header: 'MIDDLE NAME', width: 14 },
-            { key: 'extension', header: 'EXT.', width: 6 },
-            { key: 'birth_date', header: 'DATE OF BIRTH', width: 14 },
-            { key: 'age', header: 'AGE', width: 6 },
-            { key: 'gender', header: 'SEX', width: 8 },
-            { key: 'civil_status', header: 'CIVIL STATUS', width: 14 },
-            { key: 'address', header: 'ADDRESS', width: 28 },
-            { key: 'contact_number', header: 'CONTACT NO.', width: 16 },
-            { key: 'valid_id', header: 'VALID ID TYPE', width: 16 },
-            { key: 'id_number', header: 'ID NUMBER', width: 16 },
-            { key: 'occupation', header: 'OCCUPATION', width: 16 },
+        // Row 7-8: Annex D grouped headers
+        const headerTopRow = 7;
+        const headerSubRow = 8;
+
+        const columnDefs = [
+            { key: 'no', width: 5 },
+            { key: 'first_name', width: 14 },
+            { key: 'middle_name', width: 14 },
+            { key: 'last_name', width: 14 },
+            { key: 'extension_name', width: 8 },
+            { key: 'bf_class', width: 10 },
+            { key: 'street_or_lot', width: 14 },
+            { key: 'barangay', width: 12 },
+            { key: 'city_municipality', width: 14 },
+            { key: 'district', width: 11 },
+            { key: 'id_type', width: 12 },
+            { key: 'id_no', width: 14 },
+            { key: 'contact_no', width: 12 },
+            { key: 'signature', width: 12 },
+            { key: 'type_of_education', width: 14 },
+            { key: 'occupation', width: 14 },
+            { key: 'sex', width: 8 },
+            { key: 'civil_status', width: 10 },
+            { key: 'age', width: 6 },
+            { key: 'avg_monthly_income', width: 14 },
+            { key: 'dependents', width: 11 },
+            { key: 'interest_livelihood', width: 20 },
         ];
-
-        // Set column widths
-        headers.forEach((h, i) => {
-            ws.getColumn(i + 1).width = h.width;
+        columnDefs.forEach((col, idx) => {
+            ws.getColumn(idx + 1).width = col.width;
         });
 
-        // Write header cells
-        const headerRowObj = ws.getRow(headerRow);
-        headers.forEach((h, i) => {
-            const cell = headerRowObj.getCell(i + 1);
-            cell.value = h.header;
-            cell.font = { bold: true, size: 9, name: 'Arial' };
-            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-            cell.border = {
-                top: { style: 'thin' },
-                bottom: { style: 'thin' },
-                left: { style: 'thin' },
-                right: { style: 'thin' }
-            };
-        });
-        headerRowObj.height = 30;
+        // Group headers (top row)
+        ws.mergeCells('A7:A8');
+        ws.getCell('A7').value = 'No.';
 
-        // ── Data rows ──
-        const calculateAge = (birthDate) => {
-            if (!birthDate) return '';
-            const birth = new Date(birthDate);
-            const today = new Date();
-            let age = today.getFullYear() - birth.getFullYear();
-            const monthDiff = today.getMonth() - birth.getMonth();
-            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-                age--;
-            }
-            return age;
-        };
+        ws.mergeCells('B7:E7');
+        ws.getCell('B7').value = 'Name of Beneficiary';
 
-        rows.forEach((row, index) => {
-            const dataRow = ws.getRow(headerRow + 1 + index);
-            const values = [
-                index + 1,
-                (row.last_name || '').toUpperCase(),
-                (row.first_name || '').toUpperCase(),
-                (row.middle_name || '').toUpperCase(),
-                row.extension_name || '',
-                row.birth_date ? new Date(row.birth_date).toLocaleDateString('en-PH') : '',
-                calculateAge(row.birth_date),
-                row.gender || '',
-                row.civil_status || '',
-                row.address || '',
-                row.contact_number || '',
-                row.valid_id_type || '',
-                row.id_number || '',
-                row.occupation || ''
-            ];
+        ws.mergeCells('F7:F8');
+        ws.getCell('F7').value = "BF's Class";
 
-            values.forEach((val, i) => {
-                const cell = dataRow.getCell(i + 1);
-                cell.value = val;
-                cell.font = { size: 9, name: 'Arial' };
-                cell.alignment = { vertical: 'middle', wrapText: true };
+        ws.mergeCells('G7:J7');
+        ws.getCell('G7').value = 'Project Location';
+
+        ws.mergeCells('K7:K8');
+        ws.getCell('K7').value = 'Type of ID';
+
+        ws.mergeCells('L7:L8');
+        ws.getCell('L7').value = 'ID No.';
+
+        ws.mergeCells('M7:M8');
+        ws.getCell('M7').value = 'Contact No.';
+
+        ws.mergeCells('N7:N8');
+        ws.getCell('N7').value = 'Signature of beneficiary acknowledging receipt';
+
+        ws.mergeCells('O7:O8');
+        ws.getCell('O7').value = 'Type of education';
+
+        ws.mergeCells('P7:P8');
+        ws.getCell('P7').value = 'Occupation';
+
+        ws.mergeCells('Q7:Q8');
+        ws.getCell('Q7').value = 'Sex';
+
+        ws.mergeCells('R7:R8');
+        ws.getCell('R7').value = 'Civil Status';
+
+        ws.mergeCells('S7:S8');
+        ws.getCell('S7').value = 'Age';
+
+        ws.mergeCells('T7:T8');
+        ws.getCell('T7').value = 'Average monthly income';
+
+        ws.mergeCells('U7:U8');
+        ws.getCell('U7').value = 'Dependents';
+
+        ws.mergeCells('V7:V8');
+        ws.getCell('V7').value = 'Interested in joining other livelihood program?';
+
+        // Sub headers (second row)
+        ws.getCell('B8').value = 'First Name';
+        ws.getCell('C8').value = 'Middle Name';
+        ws.getCell('D8').value = 'Last Name';
+        ws.getCell('E8').value = 'Extension Name';
+        ws.getCell('G8').value = 'Street / Lot No.';
+        ws.getCell('H8').value = 'Barangay';
+        ws.getCell('I8').value = 'City / Municipality';
+        ws.getCell('J8').value = 'District';
+
+        // Apply style for both header rows
+        for (let rowNo = headerTopRow; rowNo <= headerSubRow; rowNo++) {
+            const row = ws.getRow(rowNo);
+            for (let c = 1; c <= 22; c++) {
+                const cell = row.getCell(c);
+                cell.font = { bold: true, size: 9, name: 'Arial' };
+                cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
                 cell.border = {
                     top: { style: 'thin' },
                     bottom: { style: 'thin' },
                     left: { style: 'thin' },
                     right: { style: 'thin' }
                 };
-            });
+            }
+            row.height = rowNo === headerTopRow ? 22 : 28;
+        }
 
-            dataRow.height = 20;
+        const splitAddress = (addressValue) => {
+            const parts = String(addressValue || '').split(',').map((p) => p.trim()).filter(Boolean);
+            return {
+                sitio: parts[0] || '',
+                barangay: parts[1] || parts[0] || '',
+                cityMunicipality: parts[2] || '',
+                district: parts[3] || '',
+            };
+        };
+
+        const dataRows = rows.map((row, index) => {
+            const age = annexCalculateAge(row.birth_date);
+            const location = splitAddress(row.address);
+            return [
+                index + 1,
+                (row.first_name || '').toUpperCase(),
+                (row.middle_name || '').toUpperCase(),
+                (row.last_name || '').toUpperCase(),
+                (row.extension_name || '').toUpperCase(),
+                '', // BF's class is not stored yet
+                location.sitio || '',
+                location.barangay,
+                location.cityMunicipality,
+                location.district,
+                row.valid_id_type || '',
+                row.id_number || '',
+                row.contact_number || '',
+                '', // signature captured physically on printed sheet
+                row.educational_attainment || '',
+                row.occupation || '',
+                row.gender || '',
+                row.civil_status || '',
+                age === '' ? '' : age,
+                row.monthly_income ?? '',
+                '', // dependents not captured in TUPAD form yet
+                row.job_preference || '',
+            ];
         });
 
-        // ── Signature section ──
-        const sigRow = headerRow + rows.length + 3;
+        annexWriteDataRows(ws, headerSubRow, dataRows);
 
-        ws.mergeCells(`A${sigRow}:D${sigRow}`);
-        ws.getCell(`A${sigRow}`).value = 'Prepared by:';
-        ws.getCell(`A${sigRow}`).font = { size: 10, name: 'Arial' };
-
-        ws.mergeCells(`H${sigRow}:N${sigRow}`);
-        ws.getCell(`H${sigRow}`).value = 'Noted by:';
-        ws.getCell(`H${sigRow}`).font = { size: 10, name: 'Arial' };
-
-        ws.mergeCells(`A${sigRow + 2}:D${sigRow + 2}`);
-        ws.getCell(`A${sigRow + 2}`).value = '______________________________';
-        ws.getCell(`A${sigRow + 2}`).alignment = { horizontal: 'center' };
-
-        ws.mergeCells(`A${sigRow + 3}:D${sigRow + 3}`);
-        ws.getCell(`A${sigRow + 3}`).value = 'PESO Manager';
-        ws.getCell(`A${sigRow + 3}`).font = { size: 9, name: 'Arial', italic: true };
-        ws.getCell(`A${sigRow + 3}`).alignment = { horizontal: 'center' };
-
-        ws.mergeCells(`H${sigRow + 2}:N${sigRow + 2}`);
-        ws.getCell(`H${sigRow + 2}`).value = '______________________________';
-        ws.getCell(`H${sigRow + 2}`).alignment = { horizontal: 'center' };
-
-        ws.mergeCells(`H${sigRow + 3}:N${sigRow + 3}`);
-        ws.getCell(`H${sigRow + 3}`).value = 'Municipal Mayor / Authorized Representative';
-        ws.getCell(`H${sigRow + 3}`).font = { size: 9, name: 'Arial', italic: true };
-        ws.getCell(`H${sigRow + 3}`).alignment = { horizontal: 'center' };
+        const sigRow = headerSubRow + rows.length + 3;
+        annexWriteSignatureBlock(ws, 'V', sigRow);
 
         // ── Respond ──
         const filename = `Annex_D_TUPAD_Beneficiaries_${new Date().toISOString().slice(0, 10)}.xlsx`;
@@ -912,6 +1052,434 @@ exports.exportAnnexD = async (req, res) => {
     } catch (error) {
         console.error('Error exporting Annex D:', error.message);
         res.status(500).json({ message: 'Error exporting Annex D', error: error.message });
+    }
+};
+
+// =============================================
+// Annex B Excel Export (SPES beneficiaries)
+// =============================================
+exports.exportAnnexB = async (req, res) => {
+    try {
+        if (req.user?.role !== 'admin') {
+            return res.status(403).json({ message: 'Only admin can export Annex B' });
+        }
+
+        const query = `
+            SELECT
+                b.first_name,
+                b.middle_name,
+                b.last_name,
+                b.extension_name,
+                b.birth_date,
+                b.gender,
+                b.civil_status AS beneficiary_civil_status,
+                b.contact_number,
+                b.address,
+                sd.type_of_student,
+                sd.education_level,
+                sd.name_of_school,
+                sd.degree_earned_course,
+                sd.year_level,
+                sd.present_address,
+                sd.civil_status AS spes_civil_status,
+                sd.sex AS spes_sex
+            FROM applications a
+            LEFT JOIN beneficiaries b ON b.user_id = a.user_id
+            LEFT JOIN spes_details sd ON sd.application_id = a.application_id
+            WHERE a.status = 'Approved' AND a.program_type = 'spes'
+            ORDER BY b.last_name ASC, b.first_name ASC
+        `;
+
+        const [rows] = await db.execute(query);
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'PESO Management System';
+        workbook.created = new Date();
+
+        const ws = workbook.addWorksheet('Annex B', {
+            pageSetup: {
+                paperSize: 9,
+                orientation: 'landscape',
+                fitToPage: true,
+                fitToWidth: 1,
+                margins: { left: 0.4, right: 0.4, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 }
+            }
+        });
+
+        ws.mergeCells('A1:P1');
+        ws.getCell('A1').value = 'ANNEX B';
+        ws.getCell('A1').font = { bold: true, size: 14, name: 'Arial' };
+        ws.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+
+        ws.mergeCells('A2:P2');
+        ws.getCell('A2').value = 'LIST OF SPES BENEFICIARIES';
+        ws.getCell('A2').font = { bold: true, size: 12, name: 'Arial' };
+        ws.getCell('A2').alignment = { horizontal: 'center', vertical: 'middle' };
+
+        ws.mergeCells('A3:P3');
+        ws.getCell('A3').value = 'SPES — Special Program for Employment of Students';
+        ws.getCell('A3').font = { italic: true, size: 10, name: 'Arial' };
+        ws.getCell('A3').alignment = { horizontal: 'center', vertical: 'middle' };
+
+        ws.mergeCells('A4:P4');
+        ws.mergeCells('A5:D5');
+        ws.getCell('A5').value = 'PESO/LGU: ________________________________________';
+        ws.getCell('A5').font = { size: 10, name: 'Arial' };
+        ws.mergeCells('E5:I5');
+        ws.getCell('E5').value = 'Date: ' + new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+        ws.getCell('E5').font = { size: 10, name: 'Arial' };
+        ws.mergeCells('J5:P5');
+        ws.getCell('J5').value = 'Employer / Agency: ________________________________________';
+        ws.getCell('J5').font = { size: 10, name: 'Arial' };
+        ws.mergeCells('A6:P6');
+
+        const headerRow = 7;
+        const headers = [
+            { header: 'No.', width: 5 },
+            { header: 'LAST NAME', width: 14 },
+            { header: 'FIRST NAME', width: 14 },
+            { header: 'MIDDLE NAME', width: 12 },
+            { header: 'EXT.', width: 5 },
+            { header: 'DATE OF BIRTH', width: 12 },
+            { header: 'AGE', width: 5 },
+            { header: 'SEX', width: 7 },
+            { header: 'CIVIL STATUS', width: 12 },
+            { header: 'TYPE OF STUDENT', width: 14 },
+            { header: 'EDUCATION LEVEL', width: 12 },
+            { header: 'SCHOOL', width: 18 },
+            { header: 'COURSE / DEGREE', width: 18 },
+            { header: 'YEAR LEVEL', width: 10 },
+            { header: 'PRESENT ADDRESS', width: 24 },
+            { header: 'CONTACT NO.', width: 14 },
+        ];
+
+        annexWriteHeaderRow(ws, headerRow, headers);
+
+        const dataRows = rows.map((row, index) => [
+            index + 1,
+            (row.last_name || '').toUpperCase(),
+            (row.first_name || '').toUpperCase(),
+            (row.middle_name || '').toUpperCase(),
+            row.extension_name || '',
+            row.birth_date ? new Date(row.birth_date).toLocaleDateString('en-PH') : '',
+            annexCalculateAge(row.birth_date),
+            row.gender || row.spes_sex || '',
+            row.beneficiary_civil_status || row.spes_civil_status || '',
+            row.type_of_student || '',
+            row.education_level || '',
+            row.name_of_school || '',
+            row.degree_earned_course || '',
+            row.year_level || '',
+            row.present_address || row.address || '',
+            row.contact_number || '',
+        ]);
+
+        annexWriteDataRows(ws, headerRow, dataRows);
+
+        const sigRow = headerRow + rows.length + 3;
+        annexWriteSignatureBlock(ws, 'P', sigRow);
+
+        const filename = `Annex_B_SPES_Beneficiaries_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        console.error('Error exporting Annex B:', error.message);
+        res.status(500).json({ message: 'Error exporting Annex B', error: error.message });
+    }
+};
+
+// =============================================
+// Annex H Excel Export (GIP beneficiaries)
+// =============================================
+exports.exportAnnexH = async (req, res) => {
+    try {
+        if (req.user?.role !== 'admin') {
+            return res.status(403).json({ message: 'Only admin can export Annex H' });
+        }
+
+        const query = `
+            SELECT
+                b.first_name,
+                b.middle_name,
+                b.last_name,
+                b.extension_name,
+                b.birth_date,
+                b.gender,
+                b.civil_status,
+                b.contact_number,
+                b.address,
+                g.school,
+                g.course,
+                g.year_graduated,
+                g.education_level,
+                g.employment_status,
+                g.skills,
+                g.government_id,
+                g.emergency_name,
+                g.emergency_contact
+            FROM applications a
+            LEFT JOIN beneficiaries b ON b.user_id = a.user_id
+            LEFT JOIN gip_details g ON g.application_id = a.application_id
+            WHERE a.status = 'Approved' AND a.program_type = 'gip'
+            ORDER BY b.last_name ASC, b.first_name ASC
+        `;
+
+        const [rows] = await db.execute(query);
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'PESO Management System';
+        workbook.created = new Date();
+
+        const ws = workbook.addWorksheet('Annex H', {
+            pageSetup: {
+                paperSize: 9,
+                orientation: 'landscape',
+                fitToPage: true,
+                fitToWidth: 1,
+                margins: { left: 0.4, right: 0.4, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 }
+            }
+        });
+
+        ws.mergeCells('A1:S1');
+        ws.getCell('A1').value = 'ANNEX H';
+        ws.getCell('A1').font = { bold: true, size: 14, name: 'Arial' };
+        ws.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+
+        ws.mergeCells('A2:S2');
+        ws.getCell('A2').value = 'LIST OF GIP BENEFICIARIES';
+        ws.getCell('A2').font = { bold: true, size: 12, name: 'Arial' };
+        ws.getCell('A2').alignment = { horizontal: 'center', vertical: 'middle' };
+
+        ws.mergeCells('A3:S3');
+        ws.getCell('A3').value = 'GIP — Government Internship Program';
+        ws.getCell('A3').font = { italic: true, size: 10, name: 'Arial' };
+        ws.getCell('A3').alignment = { horizontal: 'center', vertical: 'middle' };
+
+        ws.mergeCells('A4:S4');
+        ws.mergeCells('A5:D5');
+        ws.getCell('A5').value = 'PESO/LGU: ________________________________________';
+        ws.getCell('A5').font = { size: 10, name: 'Arial' };
+        ws.mergeCells('E5:J5');
+        ws.getCell('E5').value = 'Date: ' + new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+        ws.getCell('E5').font = { size: 10, name: 'Arial' };
+        ws.mergeCells('K5:S5');
+        ws.getCell('K5').value = 'Partner Agency: ________________________________________';
+        ws.getCell('K5').font = { size: 10, name: 'Arial' };
+        ws.mergeCells('A6:S6');
+
+        const headerRow = 7;
+        const headers = [
+            { header: 'No.', width: 5 },
+            { header: 'LAST NAME', width: 12 },
+            { header: 'FIRST NAME', width: 12 },
+            { header: 'MIDDLE NAME', width: 11 },
+            { header: 'EXT.', width: 5 },
+            { header: 'DATE OF BIRTH', width: 11 },
+            { header: 'AGE', width: 5 },
+            { header: 'SEX', width: 6 },
+            { header: 'CIVIL STATUS', width: 11 },
+            { header: 'ADDRESS', width: 20 },
+            { header: 'CONTACT NO.', width: 12 },
+            { header: 'SCHOOL', width: 14 },
+            { header: 'COURSE', width: 14 },
+            { header: 'YEAR GRAD.', width: 9 },
+            { header: 'EDUC. LEVEL', width: 11 },
+            { header: 'EMPLOYMENT STATUS', width: 14 },
+            { header: 'SKILLS', width: 18 },
+            { header: 'GOV\'T ID NO.', width: 12 },
+            { header: 'EMERGENCY (NAME / CONTACT)', width: 22 },
+        ];
+
+        annexWriteHeaderRow(ws, headerRow, headers);
+
+        const dataRows = rows.map((row, index) => {
+            const emergency = [row.emergency_name, row.emergency_contact].filter(Boolean).join(' / ');
+            return [
+                index + 1,
+                (row.last_name || '').toUpperCase(),
+                (row.first_name || '').toUpperCase(),
+                (row.middle_name || '').toUpperCase(),
+                row.extension_name || '',
+                row.birth_date ? new Date(row.birth_date).toLocaleDateString('en-PH') : '',
+                annexCalculateAge(row.birth_date),
+                row.gender || '',
+                row.civil_status || '',
+                row.address || '',
+                row.contact_number || '',
+                row.school || '',
+                row.course || '',
+                row.year_graduated || '',
+                row.education_level || '',
+                row.employment_status || '',
+                row.skills || '',
+                row.government_id || '',
+                emergency,
+            ];
+        });
+
+        annexWriteDataRows(ws, headerRow, dataRows);
+
+        const sigRow = headerRow + rows.length + 3;
+        annexWriteSignatureBlock(ws, 'S', sigRow);
+
+        const filename = `Annex_H_GIP_Beneficiaries_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        console.error('Error exporting Annex H:', error.message);
+        res.status(500).json({ message: 'Error exporting Annex H', error: error.message });
+    }
+};
+
+// =============================================
+// Annex L Excel Export (registered job seekers)
+// =============================================
+exports.exportAnnexL = async (req, res) => {
+    try {
+        if (req.user?.role !== 'admin') {
+            return res.status(403).json({ message: 'Only admin can export Annex L' });
+        }
+
+        const query = `
+            SELECT
+                b.first_name,
+                b.middle_name,
+                b.last_name,
+                b.extension_name,
+                b.birth_date,
+                b.gender,
+                b.civil_status,
+                b.contact_number,
+                b.address,
+                j.employment_status,
+                j.preferred_work_type,
+                j.preferred_industry,
+                j.years_of_experience,
+                j.technical_skills,
+                j.urgent_training,
+                j.certifications,
+                j.availability,
+                j.expected_salary
+            FROM applications a
+            LEFT JOIN beneficiaries b ON b.user_id = a.user_id
+            LEFT JOIN jobseeker_details j ON j.application_id = a.application_id
+            WHERE a.status = 'Approved' AND a.program_type = 'job_seekers'
+            ORDER BY b.last_name ASC, b.first_name ASC
+        `;
+
+        const [rows] = await db.execute(query);
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'PESO Management System';
+        workbook.created = new Date();
+
+        const ws = workbook.addWorksheet('Annex L', {
+            pageSetup: {
+                paperSize: 9,
+                orientation: 'landscape',
+                fitToPage: true,
+                fitToWidth: 1,
+                margins: { left: 0.4, right: 0.4, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 }
+            }
+        });
+
+        ws.mergeCells('A1:R1');
+        ws.getCell('A1').value = 'ANNEX L';
+        ws.getCell('A1').font = { bold: true, size: 14, name: 'Arial' };
+        ws.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+
+        ws.mergeCells('A2:R2');
+        ws.getCell('A2').value = 'LIST OF REGISTERED JOB SEEKERS';
+        ws.getCell('A2').font = { bold: true, size: 12, name: 'Arial' };
+        ws.getCell('A2').alignment = { horizontal: 'center', vertical: 'middle' };
+
+        ws.mergeCells('A3:R3');
+        ws.getCell('A3').value = 'Public Employment Service Office — Job Applicants Registry';
+        ws.getCell('A3').font = { italic: true, size: 10, name: 'Arial' };
+        ws.getCell('A3').alignment = { horizontal: 'center', vertical: 'middle' };
+
+        ws.mergeCells('A4:R4');
+        ws.mergeCells('A5:D5');
+        ws.getCell('A5').value = 'PESO/LGU: ________________________________________';
+        ws.getCell('A5').font = { size: 10, name: 'Arial' };
+        ws.mergeCells('E5:I5');
+        ws.getCell('E5').value = 'Date: ' + new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+        ws.getCell('E5').font = { size: 10, name: 'Arial' };
+        ws.mergeCells('J5:R5');
+        ws.getCell('J5').value = 'Reporting period: ________________________________________';
+        ws.getCell('J5').font = { size: 10, name: 'Arial' };
+        ws.mergeCells('A6:R6');
+
+        const headerRow = 7;
+        const headers = [
+            { header: 'No.', width: 5 },
+            { header: 'LAST NAME', width: 12 },
+            { header: 'FIRST NAME', width: 12 },
+            { header: 'MIDDLE NAME', width: 11 },
+            { header: 'EXT.', width: 5 },
+            { header: 'DATE OF BIRTH', width: 11 },
+            { header: 'AGE', width: 5 },
+            { header: 'SEX', width: 6 },
+            { header: 'CIVIL STATUS', width: 11 },
+            { header: 'ADDRESS', width: 22 },
+            { header: 'CONTACT NO.', width: 12 },
+            { header: 'EMPLOYMENT STATUS', width: 13 },
+            { header: 'PREFERRED WORK TYPE', width: 14 },
+            { header: 'INDUSTRY', width: 14 },
+            { header: 'YEARS EXP.', width: 9 },
+            { header: 'EXPECTED SALARY', width: 12 },
+            { header: 'AVAILABILITY', width: 12 },
+            { header: 'TECHNICAL SKILLS', width: 20 },
+            { header: 'TRAINING / CERTS', width: 20 },
+        ];
+
+        annexWriteHeaderRow(ws, headerRow, headers);
+
+        const dataRows = rows.map((row, index) => {
+            const trainCerts = [row.urgent_training, row.certifications].filter(Boolean).join(' | ');
+            return [
+                index + 1,
+                (row.last_name || '').toUpperCase(),
+                (row.first_name || '').toUpperCase(),
+                (row.middle_name || '').toUpperCase(),
+                row.extension_name || '',
+                row.birth_date ? new Date(row.birth_date).toLocaleDateString('en-PH') : '',
+                annexCalculateAge(row.birth_date),
+                row.gender || '',
+                row.civil_status || '',
+                row.address || '',
+                row.contact_number || '',
+                row.employment_status || '',
+                row.preferred_work_type || '',
+                row.preferred_industry || '',
+                row.years_of_experience || '',
+                row.expected_salary || '',
+                row.availability || '',
+                row.technical_skills || '',
+                trainCerts,
+            ];
+        });
+
+        annexWriteDataRows(ws, headerRow, dataRows);
+
+        const sigRow = headerRow + rows.length + 3;
+        annexWriteSignatureBlock(ws, 'R', sigRow);
+
+        const filename = `Annex_L_Job_Seekers_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        console.error('Error exporting Annex L:', error.message);
+        res.status(500).json({ message: 'Error exporting Annex L', error: error.message });
     }
 };
 

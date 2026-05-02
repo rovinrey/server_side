@@ -59,8 +59,11 @@ router.put('/tupad/:detailId', authMiddleware, applicationController.updateTupad
 // Admin: Update beneficiary personal info linked to an application
 router.put('/:applicationId/beneficiary', authMiddleware, applicationController.updateApplicationBeneficiary);
 
-// Admin: Annex D export
+// Admin: PESO annex Excel exports
 router.get('/annex-d/export', authMiddleware, applicationController.exportAnnexD);
+router.get('/annex-b/export', authMiddleware, applicationController.exportAnnexB);
+router.get('/annex-h/export', authMiddleware, applicationController.exportAnnexH);
+router.get('/annex-l/export', authMiddleware, applicationController.exportAnnexL);
 
 // Admin: Batch update Excel data inline (without MS Excel)
 router.put('/excel/update', authMiddleware, applicationController.updateExcelData);

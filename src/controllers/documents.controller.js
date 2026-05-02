@@ -1,6 +1,7 @@
 const documentsService = require('../services/documents.services');
 const path = require('path');
 const fs = require('fs');
+const db = require('../../config');
 
 const VALID_PROGRAMS = ['tupad', 'spes', 'dilp', 'gip', 'job_seekers'];
 
@@ -11,6 +12,46 @@ const PROGRAM_REQUIREMENTS = {
     dilp: ['valid_government_id', 'project_proposal', 'barangay_clearance', 'business_registration'],
     gip: ['government_id', 'transcript_of_records', 'certificate_of_graduation', 'barangay_clearance', 'nbi_police_clearance'],
     job_seekers: ['updated_resume', 'valid_government_id', 'proof_of_address', 'certifications'],
+};
+
+const SENIOR_CITIZEN_AGE = 60;
+const TUPAD_SENIOR_DOCUMENT = 'fit_to_work';
+
+const calculateAge = (birthDate) => {
+    if (!birthDate) return null;
+    const birth = new Date(birthDate);
+    if (Number.isNaN(birth.getTime())) return null;
+
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+        age--;
+    }
+    return age;
+};
+
+const getUserBirthDate = async (userId) => {
+    const [rows] = await db.query(
+        'SELECT birth_date FROM beneficiaries WHERE user_id = ? LIMIT 1',
+        [userId]
+    );
+    return rows?.[0]?.birth_date || null;
+};
+
+const getProgramRequirementsForUser = async (userId, programType) => {
+    const base = [...(PROGRAM_REQUIREMENTS[programType] || [])];
+    if (programType !== 'tupad') {
+        return base;
+    }
+
+    const birthDate = await getUserBirthDate(userId);
+    const age = calculateAge(birthDate);
+    if (age !== null && age >= SENIOR_CITIZEN_AGE) {
+        base.push(TUPAD_SENIOR_DOCUMENT);
+    }
+
+    return base;
 };
 
 /**
@@ -43,19 +84,21 @@ exports.getAllDocumentStatus = async (req, res) => {
 
         // Build status for each program
         const programs = {};
-        Object.keys(PROGRAM_REQUIREMENTS).forEach((programType) => {
-            const required = PROGRAM_REQUIREMENTS[programType];
+        const programTypes = Object.keys(PROGRAM_REQUIREMENTS);
+        for (const programType of programTypes) {
+            const required = await getProgramRequirementsForUser(userId, programType);
             const submitted = byProgram[programType] || [];
             const submittedTypes = submitted.map((d) => d.document_type);
+            const submittedRequiredCount = required.filter((r) => submittedTypes.includes(r)).length;
 
             programs[programType] = {
                 total_required: required.length,
-                submitted_count: submitted.length,
+                submitted_count: submittedRequiredCount,
                 is_complete: required.every((r) => submittedTypes.includes(r)),
                 documents: submitted,
                 missing: required.filter((r) => !submittedTypes.includes(r)),
             };
-        });
+        }
 
         return res.status(200).json({ programs });
     } catch (error) {

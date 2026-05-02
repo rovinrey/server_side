@@ -203,8 +203,11 @@ exports.getPendingApplications = async (programType = null) => {
   return [rows];
 };
 
-// get applications by status (for admin management view) - excludes actively enrolled for Approved status
-exports.getApplicationsByStatus = async (status, programType = null) => {
+// get applications by status (for admin/staff management view).
+// For Approved: by default excludes rows already actively enrolled (enrollment queue).
+// Admins can pass includeEnrolledApproved to list every approved application.
+exports.getApplicationsByStatus = async (status, programType = null, options = {}) => {
+  const { includeEnrolledApproved = false } = options;
   const params = [status];
   let whereConditions = ['a.status = ?'];
 
@@ -213,8 +216,7 @@ exports.getApplicationsByStatus = async (status, programType = null) => {
     params.push(programType);
   }
 
-  // NEW: For Approved status, exclude actively enrolled beneficiaries
-  if (status === 'Approved') {
+  if (status === 'Approved' && !includeEnrolledApproved) {
     whereConditions.push(`
       NOT EXISTS (
         SELECT 1 FROM program_enrollees pe 
@@ -239,7 +241,12 @@ exports.getApplicationsByStatus = async (status, programType = null) => {
       COALESCE(b.address, sd.present_address, NULL) AS address,
       a.status,
       a.rejection_reason,
-      a.applied_at
+      a.applied_at,
+      CASE WHEN EXISTS (
+        SELECT 1 FROM program_enrollees pe
+        WHERE pe.application_id = a.application_id
+          AND pe.current_status = 'Active'
+      ) THEN 1 ELSE 0 END AS is_enrolled
     FROM applications a
     LEFT JOIN beneficiaries b ON b.user_id = a.user_id
     LEFT JOIN spes_details sd ON sd.application_id = a.application_id
@@ -253,7 +260,15 @@ exports.getApplicationsByStatus = async (status, programType = null) => {
 
 // approve application of the benficiary
 exports.approveApplication = async (id) => {
+  const applicationId = parseInt(id, 10);
+  if (Number.isNaN(applicationId) || applicationId < 1) {
+    throw new Error('Invalid application ID');
+  }
+
   const connection = await db.getConnection();
+  let userId;
+  let programType;
+
   try {
     await connection.beginTransaction();
 
@@ -261,97 +276,136 @@ exports.approveApplication = async (id) => {
     const [appRows] = await connection.execute(
       `SELECT application_id, user_id, program_type, status
        FROM applications WHERE application_id = ?`,
-      [id]
+      [applicationId]
     );
     if (!appRows.length) {
       throw new Error('Application not found');
     }
     const application = appRows[0];
-    if (application.status === 'Approved') {
+    const statusNorm = String(application.status || '').trim().toLowerCase();
+    if (statusNorm === 'approved') {
       throw new Error('Application is already approved');
     }
 
-    // 2. Update application status to Approved
-    await connection.execute(
-      `UPDATE applications
-       SET status = 'Approved',
-           approval_date = NOW(),
-           rejection_reason = NULL
-       WHERE application_id = ?`,
-      [id]
-    );
+    // 2. Update application status to Approved (tolerate DB without approval_date)
+    let header;
+    try {
+      const [h] = await connection.execute(
+        `UPDATE applications
+         SET status = 'Approved',
+             approval_date = NOW(),
+             rejection_reason = NULL
+         WHERE application_id = ?`,
+        [applicationId]
+      );
+      header = h;
+    } catch (updErr) {
+      const msg = String(updErr.sqlMessage || updErr.message || '');
+      if (updErr.errno === 1054 && msg.includes('approval_date')) {
+        const [h] = await connection.execute(
+          `UPDATE applications
+           SET status = 'Approved',
+               rejection_reason = NULL
+           WHERE application_id = ?`,
+          [applicationId]
+        );
+        header = h;
+      } else {
+        throw updErr;
+      }
+    }
+    if (!header || header.affectedRows < 1) {
+      throw new Error('Application could not be updated');
+    }
 
-    // 3. Ensure the beneficiary record is active
-    const [benefRows] = await connection.execute(
-      `SELECT beneficiary_id FROM beneficiaries WHERE user_id = ?`,
-      [application.user_id]
-    );
-    if (benefRows.length) {
-      await connection.execute(
-        `UPDATE beneficiaries SET is_active = 1 WHERE user_id = ?`,
+    // 3. Ensure the beneficiary record is active (must not fail the whole approval)
+    try {
+      const [benefRows] = await connection.execute(
+        `SELECT beneficiary_id FROM beneficiaries WHERE user_id = ?`,
         [application.user_id]
       );
+      if (benefRows.length) {
+        await connection.execute(
+          `UPDATE beneficiaries SET is_active = 1 WHERE user_id = ?`,
+          [application.user_id]
+        );
+      }
+    } catch (benErr) {
+      console.warn(
+        'approveApplication: beneficiary activation skipped:',
+        benErr.sqlMessage || benErr.message
+      );
     }
-    // 5. Send approval notification to the beneficiary
-    const programLabel = (application.program_type || '').toUpperCase().replace('_', ' ');
-    await connection.execute(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, ?, ?, ?)`,
-      [
-        application.user_id,
-        'Application Approved',
-        `Your ${programLabel} application has been approved. You are now enrolled in the program.`,
-        'application'
-      ]
-    );
+
+    userId = application.user_id;
+    programType = application.program_type;
 
     await connection.commit();
-    return { applicationId: id, userId: application.user_id, programType: application.program_type };
   } catch (err) {
     await connection.rollback();
     throw err;
   } finally {
     connection.release();
   }
+
+  // Outside transaction: notification failures must not undo approval
+  const programLabel = (programType || '').toUpperCase().replace('_', ' ');
+  try {
+    await db.execute(
+      `INSERT INTO notifications (user_id, title, message, type)
+       VALUES (?, ?, ?, ?)`,
+      [
+        userId,
+        'Application Approved',
+        `Your ${programLabel} application has been approved. PESO staff will assign you to a program batch—watch for further updates.`,
+        'general',
+      ]
+    );
+  } catch (notifErr) {
+    console.error('Approval notification insert failed:', notifErr.message);
+  }
+
+  return { applicationId, userId, programType };
 };
 
 // reject application of the benficiary
 exports.rejectApplication = async (id, reason) => {
+  const applicationId = parseInt(id, 10);
+  if (Number.isNaN(applicationId) || applicationId < 1) {
+    throw new Error('Invalid application ID');
+  }
+
   const connection = await db.getConnection();
+  let userId;
+  let programType;
+  let programLabel;
+  let notifMessage;
+
   try {
     await connection.beginTransaction();
 
-    // 1. Fetch the application
+    // 1. Fetch the application (omit program_id — not present on all schemas)
     const [appRows] = await connection.execute(
-      `SELECT application_id, user_id, program_type, program_id, status
+      `SELECT application_id, user_id, program_type, status
        FROM applications WHERE application_id = ?`,
-      [id]
+      [applicationId]
     );
     if (!appRows.length) {
       throw new Error('Application not found');
     }
     const application = appRows[0];
 
-    // 2. If previously approved, decrement the program filled count using program_id
+    // 2. If previously approved, decrement filled count (best-effort match by program type)
     if (application.status === 'Approved') {
-      if (application.program_id) {
-        await connection.execute(
-          `UPDATE programs
-           SET filled = GREATEST(filled - 1, 0)
-           WHERE program_id = ?`,
-          [application.program_id]
-        );
-      } else {
-        await connection.execute(
-          `UPDATE programs
-           SET filled = GREATEST(filled - 1, 0)
-           WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
-             AND status IN ('active', 'ongoing')
-           ORDER BY start_date DESC
-           LIMIT 1`,
-          [application.program_type]
-        );
-      }
+      await connection.execute(
+        `UPDATE programs
+         SET filled = GREATEST(filled - 1, 0)
+         WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
+           AND status IN ('active', 'ongoing')
+         ORDER BY start_date DESC
+         LIMIT 1`,
+        [application.program_type]
+      );
     }
 
     // 3. Update application status to Rejected
@@ -361,28 +415,35 @@ exports.rejectApplication = async (id, reason) => {
            rejection_reason = ?,
            approval_date = NULL
        WHERE application_id = ?`,
-      [reason || null, id]
+      [reason || null, applicationId]
     );
 
-    // 4. Send rejection notification
-    const programLabel = (application.program_type || '').toUpperCase().replace('_', ' ');
-    const notifMessage = reason
+    userId = application.user_id;
+    programType = application.program_type;
+    programLabel = (programType || '').toUpperCase().replace('_', ' ');
+    notifMessage = reason
       ? `Your ${programLabel} application has been rejected. Reason: ${reason}`
       : `Your ${programLabel} application has been rejected. Please contact the office for more details.`;
-    await connection.execute(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, ?, ?, ?)`,
-      [application.user_id, 'Application Rejected', notifMessage, 'application']
-    );
 
     await connection.commit();
-    return { applicationId: id, userId: application.user_id, programType: application.program_type };
   } catch (err) {
     await connection.rollback();
     throw err;
   } finally {
     connection.release();
   }
+
+  try {
+    await db.execute(
+      `INSERT INTO notifications (user_id, title, message, type)
+       VALUES (?, ?, ?, ?)`,
+      [userId, 'Application Rejected', notifMessage, 'general']
+    );
+  } catch (notifErr) {
+    console.error('Rejection notification insert failed:', notifErr.message);
+  }
+
+  return { applicationId, userId, programType };
 };
 
 // get the latest application status for each program of a beneficiary
@@ -1442,6 +1503,9 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
   const connection = await db.getConnection();
 
   try {
+    // #region agent log
+    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H2',location:'beneficiary.services.js:enrollBeneficiary:entry',message:'enrollBeneficiary called',data:{applicationId:Number(applicationId)||null,programId:Number(programId)||null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     await connection.beginTransaction();
 
     // 1. Get application (includes user_id + program_type)
@@ -1529,6 +1593,9 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
     }
 
     const { slots, filled } = progRows[0];
+    // #region agent log
+    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H3',location:'beneficiary.services.js:enrollBeneficiary:programLock',message:'program slots snapshot before enrollment',data:{programId:Number(programId)||null,slots:Number(slots)||0,filled:Number(filled)||0},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     if (filled >= slots) {
       throw new Error('Program has no available slots');
@@ -1558,15 +1625,31 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
       [programId, applicationId]
     );
 
+    const [afterInsertRows] = await connection.execute(
+      `SELECT slots, filled FROM programs WHERE program_id = ?`,
+      [programId]
+    );
+    // #region agent log
+    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H4',location:'beneficiary.services.js:enrollBeneficiary:afterInsert',message:'program snapshot immediately after enrollee insert',data:{programId:Number(programId)||null,filledAfterInsert:Number(afterInsertRows?.[0]?.filled)||0,slotsAfterInsert:Number(afterInsertRows?.[0]?.slots)||0,enrolleeId:result?.insertId||null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+
     // ─────────────────────────────────────────────
     // 5. Update slots
     // ─────────────────────────────────────────────
-    await connection.execute(
+    const [updateFilledResult] = await connection.execute(
       `UPDATE programs 
        SET filled = filled + 1 
        WHERE program_id = ?`,
       [programId]
     );
+
+    const [afterUpdateRows] = await connection.execute(
+      `SELECT slots, filled FROM programs WHERE program_id = ?`,
+      [programId]
+    );
+    // #region agent log
+    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H5',location:'beneficiary.services.js:enrollBeneficiary:afterFilledUpdate',message:'program snapshot after manual filled increment',data:{programId:Number(programId)||null,updateAffectedRows:updateFilledResult?.affectedRows||0,filledAfterManualIncrement:Number(afterUpdateRows?.[0]?.filled)||0,slotsAfterManualIncrement:Number(afterUpdateRows?.[0]?.slots)||0},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     await connection.commit();
 

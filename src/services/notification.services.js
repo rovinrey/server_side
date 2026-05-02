@@ -1,5 +1,30 @@
 const db = require('../../config');
 
+const ALLOWED_NOTIFICATION_TYPES = new Set([
+    'program_available',
+    'program_ongoing',
+    'program_coming_soon',
+    'program_completed',
+    'general',
+]);
+
+/** Maps legacy/invalid types to a value accepted by `notifications.type` ENUM. */
+function normalizeNotificationType(type) {
+    if (!type || typeof type !== 'string') return 'general';
+    const t = type.trim().toLowerCase();
+    if (t === 'program_ready' || t === 'info') return 'program_available';
+    if (ALLOWED_NOTIFICATION_TYPES.has(t)) return t;
+    return 'general';
+}
+
+async function applicationsTableHasProgramId() {
+    const [cols] = await db.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'applications' AND COLUMN_NAME = 'program_id'`
+    );
+    return cols.length > 0;
+}
+
 /**
  * Create a notification for ALL beneficiaries (broadcast).
  * Inserts one row per beneficiary user.
@@ -10,6 +35,8 @@ const notifyAllBeneficiaries = async ({ title, message, type, program_id }) => {
     if (!title || !message) {
         throw new Error('Title and message are required for notifications');
     }
+
+    const notifType = normalizeNotificationType(type);
 
     const [beneficiaries] = await db.execute(
         "SELECT user_id FROM users WHERE role = 'beneficiary' AND user_id IS NOT NULL"
@@ -26,7 +53,7 @@ const notifyAllBeneficiaries = async ({ title, message, type, program_id }) => {
         const batch = beneficiaries.slice(i, i + BATCH_SIZE);
         const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
         const values = batch.flatMap((b) => [
-            b.user_id, title, message, type || 'info', program_id || null
+            b.user_id, title, message, notifType, program_id || null
         ]);
 
         await db.execute(
@@ -105,24 +132,35 @@ const markAllAsRead = async (userId) => {
 };
 
 /**
- * Notify only ELIGIBLE beneficiaries for a specific program (no prior application).
+ * Notify beneficiaries who have not yet submitted an application linked to this program.
+ * If `applications.program_id` is missing (legacy schema), falls back to broadcasting to all beneficiaries.
  */
 const notifyEligibleBeneficiaries = async ({ title, message, type, program_id }) => {
     if (!title || !message || !program_id) {
         throw new Error('Title, message, and program_id required for targeted notifications');
     }
 
-    const [eligible] = await db.execute(`
-        SELECT u.user_id 
+    const notifType = normalizeNotificationType(type);
+
+    const hasProgramId = await applicationsTableHasProgramId();
+    if (!hasProgramId) {
+        return notifyAllBeneficiaries({ title, message, type: notifType, program_id });
+    }
+
+    const [eligible] = await db.execute(
+        `
+        SELECT u.user_id
         FROM users u
         LEFT JOIN applications a ON u.user_id = a.user_id AND a.program_id = ?
-        WHERE u.role = 'beneficiary' 
+        WHERE u.role = 'beneficiary'
+          AND u.user_id IS NOT NULL
           AND a.application_id IS NULL
-        LIMIT 500
-    `, [program_id]);
+        `,
+        [program_id]
+    );
 
     if (eligible.length === 0) {
-        console.log('No eligible beneficiaries for program notifications');
+        console.log('No eligible beneficiaries for program notifications (all may have applied)');
         return;
     }
 
@@ -131,7 +169,7 @@ const notifyEligibleBeneficiaries = async ({ title, message, type, program_id })
         const batch = eligible.slice(i, i + BATCH_SIZE);
         const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
         const values = batch.flatMap((b) => [
-            b.user_id, title, message, type || 'program_ready', program_id
+            b.user_id, title, message, notifType, program_id
         ]);
 
         await db.execute(
@@ -142,6 +180,7 @@ const notifyEligibleBeneficiaries = async ({ title, message, type, program_id })
 };
 
 module.exports = {
+    normalizeNotificationType,
     notifyAllBeneficiaries,
     notifyEligibleBeneficiaries,
     getUserNotifications,

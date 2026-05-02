@@ -1,10 +1,12 @@
 const db = require('../../config');
-const { notifyAllBeneficiaries, notifyEligibleBeneficiaries } = require('../services/notification.services');
+const { notifyAllBeneficiaries } = require('../services/notification.services');
 const programsService = require('../services/programs.services');
 
 // Map program status to a notification type and human-readable label
 const getNotificationMeta = (status) => {
     switch ((status || '').toLowerCase()) {
+        case 'ready':
+            return { type: 'program_available', label: 'Now Ready for Applications' };
         case 'ongoing':
         case 'active':
             return { type: 'program_available', label: 'Now Open for Applications' };
@@ -42,28 +44,19 @@ exports.createProgram = async (req, res) => {
 
         const programId = result.insertId;
 
-        // Notify based on status (all vs eligible)
+        // Notify all beneficiaries when a new program is created (every status)
         try {
-            if (status?.toLowerCase() === 'ready') {
-                await notifyEligibleBeneficiaries({
-                    title: `${name} — Now Ready for Applications!`,
-                    message: `Program "${name}" in ${location} is now accepting applicants. ${slots} slots available. Apply now!`,
-                    type: 'program_ready',
-                    program_id: programId,
-                });
-            } else {
-                const { type, label } = getNotificationMeta(status);
-                const dateInfo = start_date
-                    ? ` starting ${new Date(start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
-                    : '';
+            const { type, label } = getNotificationMeta(status);
+            const dateInfo = start_date
+                ? ` starting ${new Date(start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
+                : '';
 
-                await notifyAllBeneficiaries({
-                    title: `${name} — ${label}`,
-                    message: `A new program "${name}" in ${location} is ${label.toLowerCase()}${dateInfo}. ${slots} slots available.`,
-                    type,
-                    program_id: programId,
-                });
-            }
+            await notifyAllBeneficiaries({
+                title: `${name} — ${label}`,
+                message: `A new program "${name}" in ${location} is ${label.toLowerCase()}${dateInfo}. ${slots} slots available.`,
+                type,
+                program_id: programId,
+            });
         } catch (notifError) {
             console.error('Failed to send program notifications:', notifError);
         }
@@ -182,6 +175,17 @@ exports.updateProgram = async (req, res) => {
         const { program_id } = req.params;
         const { name, location, slots, budget, status, start_date, end_date } = req.body;
 
+        const [existingRows] = await db.execute(
+            'SELECT status FROM programs WHERE program_id = ?',
+            [program_id]
+        );
+
+        if (existingRows.length === 0) {
+            return res.status(404).json({ message: "Program not found" });
+        }
+
+        const previousStatus = String(existingRows[0].status || '').toLowerCase();
+
         const query = `
             UPDATE programs 
             SET program_name = ?, location = ?, slots = ?, budget = ?, status = ?, start_date = ?, end_date = ?
@@ -198,14 +202,14 @@ exports.updateProgram = async (req, res) => {
             return res.status(404).json({ message: "Program not found" });
         }
 
-        // Trigger notifications if status changed to 'ready'
-        if (status?.toLowerCase() === 'ready') {
+        const newStatus = (status || '').toLowerCase();
+        if (newStatus === 'ready' && previousStatus !== 'ready') {
             try {
-                await notifyEligibleBeneficiaries({
+                await notifyAllBeneficiaries({
                     title: `${name} — Now Ready for Applications!`,
                     message: `Program "${name}" in ${location} is now accepting applicants. ${slots} slots available. Apply now!`,
-                    type: 'program_ready',
-                    program_id: parseInt(program_id),
+                    type: 'program_available',
+                    program_id: parseInt(program_id, 10),
                 });
             } catch (notifError) {
                 console.error('Failed to send ready program notifications:', notifError);

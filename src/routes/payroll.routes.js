@@ -21,8 +21,8 @@ router.put('/disbursements/:id/status', authMiddleware, requireAdmin, payrollCon
 // Beneficiary self-service
 router.get('/my-payouts', authMiddleware, payrollController.getBeneficiaryPayouts);
 
-// Daily wage settings (admin only)
+// Daily wage settings
 router.post('/daily-wage', authMiddleware, requireAdmin, payrollController.setDailyWage);
-router.get('/daily-wage', authMiddleware, requireAdmin, payrollController.getAllDailyWages);
+router.get('/daily-wage', authMiddleware, requireAdminOrStaff, payrollController.getAllDailyWages);
 
 module.exports = router;

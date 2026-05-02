@@ -1,57 +1,75 @@
 const db = require('../../config');
+const {
+    calculateLinePayout,
+    sumMoneyParts,
+    normalizeMoneyString,
+    parseMoneyToMinorUnits,
+} = require('../utils/money.utils');
 
-// ── Table bootstrap ──────────────────────────────────
-let tablesEnsured = false;
+// ── Schema guard (no runtime CREATE TABLE for payroll_records / disbursements) ──
+let payrollSchemaVerified = false;
+let auditColumnsEnsured = false;
 
-const ensureTables = async () => {
-    if (tablesEnsured) return;
+/**
+ * Adds audit columns for payout status changes (idempotent).
+ * Logs actor + timestamps on payroll release and disbursement lifecycle updates.
+ */
+const ensurePayrollAuditColumns = async () => {
+    if (auditColumnsEnsured) return;
+    const alters = [
+        'ALTER TABLE payroll_records ADD COLUMN released_by INT NULL',
+        'ALTER TABLE payroll_records ADD COLUMN released_at DATETIME NULL',
+        'ALTER TABLE disbursements ADD COLUMN created_by INT NULL',
+        'ALTER TABLE disbursements ADD COLUMN status_updated_by INT NULL',
+        'ALTER TABLE disbursements ADD COLUMN status_updated_at DATETIME NULL',
+    ];
+    for (const sql of alters) {
+        try {
+            await db.execute(sql);
+        } catch (err) {
+            const msg = String(err.message || '');
+            const dup = msg.includes('Duplicate column') || err.errno === 1060;
+            if (!dup) throw err;
+        }
+    }
+    auditColumnsEnsured = true;
+};
 
-    await db.execute(`
-        CREATE TABLE IF NOT EXISTS payroll_records (
-            payroll_id INT PRIMARY KEY AUTO_INCREMENT,
-            user_id INT NOT NULL,
-            program_type VARCHAR(30) NOT NULL,
-            payroll_month VARCHAR(7) NOT NULL,
-            days_worked INT NOT NULL DEFAULT 0,
-            daily_wage DECIMAL(10,2) NOT NULL DEFAULT 435.00,
-            total_payout DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-            status ENUM('Pending','Approved','Released') DEFAULT 'Pending',
-            approved_by INT NULL,
-            approved_at DATETIME NULL,
-            remarks VARCHAR(500) NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_user_program_month (user_id, program_type, payroll_month),
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-        )
-    `);
-
-    await db.execute(`
-        CREATE TABLE IF NOT EXISTS disbursements (
-            disbursement_id INT PRIMARY KEY AUTO_INCREMENT,
-            batch_code VARCHAR(30) NOT NULL UNIQUE,
-            program_type VARCHAR(30) NOT NULL,
-            payroll_month VARCHAR(7) NOT NULL,
-            total_amount DECIMAL(14,2) NOT NULL DEFAULT 0.00,
-            recipient_count INT NOT NULL DEFAULT 0,
-            payment_mode ENUM('GCash','Cash','Bank Transfer') NOT NULL DEFAULT 'Cash',
-            status ENUM('Scheduled','Processing','Released','Failed') DEFAULT 'Scheduled',
-            reference_number VARCHAR(100) NULL,
-            scheduled_date DATE NULL,
-            released_date DATE NULL,
-            released_by INT NULL,
-            notes VARCHAR(500) NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )
-    `);
-
-    tablesEnsured = true;
+/**
+ * Ensures expected payroll tables exist (migration-owned DDL only).
+ * Applies optional audit-column ALTERs once; does not CREATE payroll/disbursement tables.
+ */
+const ensurePayrollSchema = async () => {
+    if (!payrollSchemaVerified) {
+        for (const table of ['payroll_records', 'disbursements']) {
+            try {
+                await db.execute(`SELECT 1 FROM \`${table}\` LIMIT 1`);
+            } catch (err) {
+                const missing =
+                    err.code === 'ER_NO_SUCH_TABLE' ||
+                    String(err.message || '').includes('doesn\'t exist');
+                if (missing) {
+                    throw new Error(
+                        `Missing table \`${table}\`. Create it with your DBA migration—the app does not auto-create payroll tables.`
+                    );
+                }
+                throw err;
+            }
+        }
+        payrollSchemaVerified = true;
+    }
+    await ensurePayrollAuditColumns();
 };
 
 // ── Helpers ──────────────────────────────────────────
 
+/**
+ * Resolves configured daily wage for a program type as a normalized decimal string (2 places).
+ * @param {string|null} programType
+ * @returns {Promise<string>}
+ */
 const getDailyWage = async (programType = null) => {
+    const fallback = '435.00';
     // If program type specified, try to get program-specific daily wage first
     if (programType) {
         const [progRows] = await db.execute(
@@ -59,33 +77,44 @@ const getDailyWage = async (programType = null) => {
             [`${programType}_daily_wage`]
         );
         if (progRows.length > 0) {
-            return parseFloat(progRows[0].setting_value) || 435;
+            try {
+                return normalizeMoneyString(progRows[0].setting_value);
+            } catch {
+                return fallback;
+            }
         }
     }
-    
+
     // Fallback to default Tupad daily wage
     const [rows] = await db.execute(
         `SELECT setting_value FROM system_settings WHERE setting_key = 'tupad_daily_wage'`
     );
-    return rows.length > 0 ? parseFloat(rows[0].setting_value) || 435 : 435;
+    if (rows.length > 0) {
+        try {
+            return normalizeMoneyString(rows[0].setting_value);
+        } catch {
+            return fallback;
+        }
+    }
+    return fallback;
 };
 
 // Set daily wage for a specific program
 exports.setDailyWage = async (programType, wage) => {
-    const wageNum = parseFloat(wage);
-    if (isNaN(wageNum) || wageNum <= 0) {
-        throw new Error('Daily wage must be a positive number');
+    const wageStr = normalizeMoneyString(wage);
+    if (parseMoneyToMinorUnits(wageStr) <= 0) {
+        throw new Error('Daily wage must be a positive amount');
     }
 
     const key = programType ? `${programType}_daily_wage` : 'tupad_daily_wage';
-    
+
     await db.execute(
         `INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
          ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
-        [key, String(wageNum)]
+        [key, wageStr]
     );
 
-    return { program_type: programType, daily_wage: wageNum };
+    return { program_type: programType, daily_wage: wageStr };
 };
 
 // Get daily wage settings for all programs
@@ -98,11 +127,20 @@ exports.getAllDailyWages = async () => {
     const wages = {};
     for (const row of rows) {
         const programType = row.setting_key.replace('_daily_wage', '');
-        wages[programType] = parseFloat(row.setting_value);
+        try {
+            wages[programType] = normalizeMoneyString(row.setting_value);
+        } catch {
+            wages[programType] = row.setting_value;
+        }
     }
     return wages;
 };
 
+/**
+ * Normalizes payroll month to `YYYY-MM`, defaulting to current month when invalid or missing.
+ * @param {string|null|undefined} monthInput
+ * @returns {string}
+ */
 const sanitiseMonth = (monthInput) => {
     const re = /^\d{4}-(0[1-9]|1[0-2])$/;
     return re.test(String(monthInput || ''))
@@ -112,8 +150,13 @@ const sanitiseMonth = (monthInput) => {
 
 // ── Generate payroll for ALL programs for a given month ─────────
 
+/**
+ * Builds or refreshes `payroll_records` from attendance for the month.
+ * Payout lines use `calculateLinePayout` (centavo-precision) with DECIMAL column persistence.
+ * @param {string|null|undefined} monthInput `YYYY-MM` or null for current month.
+ */
 exports.generatePayroll = async (monthInput) => {
-    await ensureTables();
+    await ensurePayrollSchema();
     const selectedMonth = sanitiseMonth(monthInput);
     const startDate = `${selectedMonth}-01`;
 
@@ -157,13 +200,13 @@ exports.generatePayroll = async (monthInput) => {
         }
     }
 
-    // Upsert payroll_records with per-program daily wages
+    // Upsert payroll_records with per-program daily wages (decimal-safe payout lines)
     let generated = 0;
     for (const row of rows) {
         const progType = row.program_type || 'tupad';
-        const dailyWage = programDailyWages[progType] || 435;
-        const totalPayout = Number(row.days_worked) * dailyWage;
-        
+        const dailyWageStr = programDailyWages[progType] || '435.00';
+        const totalPayoutStr = calculateLinePayout(row.days_worked, dailyWageStr);
+
         await db.execute(
             `INSERT INTO payroll_records (user_id, program_type, payroll_month, days_worked, daily_wage, total_payout)
              VALUES (?, ?, ?, ?, ?, ?)
@@ -172,22 +215,27 @@ exports.generatePayroll = async (monthInput) => {
                 daily_wage = VALUES(daily_wage),
                 total_payout = VALUES(total_payout),
                 updated_at = NOW()`,
-            [row.user_id, row.program_type, selectedMonth, row.days_worked, dailyWage, totalPayout]
+            [row.user_id, row.program_type, selectedMonth, row.days_worked, dailyWageStr, totalPayoutStr]
         );
         generated++;
     }
 
-    return { 
-        generated, 
-        month: selectedMonth, 
-        dailyWages: programDailyWages 
+    const dailyWagesNumeric = {};
+    for (const key of Object.keys(programDailyWages)) {
+        dailyWagesNumeric[key] = parseFloat(programDailyWages[key]);
+    }
+
+    return {
+        generated,
+        month: selectedMonth,
+        dailyWages: dailyWagesNumeric,
     };
 };
 
 // ── Get payroll for a specific month, optionally filtered by program ─
 
 exports.getPayroll = async (monthInput, programType = null) => {
-    await ensureTables();
+    await ensurePayrollSchema();
     const selectedMonth = sanitiseMonth(monthInput);
 
     let query = `
@@ -223,40 +271,67 @@ exports.getPayroll = async (monthInput, programType = null) => {
 
     const [rows] = await db.execute(query, params);
 
-    const totals = rows.reduce(
-        (acc, r) => {
-            acc.days_worked += Number(r.days_worked || 0);
-            acc.total_payout += Number(r.total_payout || 0);
-            return acc;
-        },
-        { days_worked: 0, total_payout: 0 }
-    );
+    const totals = {
+        days_worked: rows.reduce((s, r) => s + Number(r.days_worked || 0), 0),
+        total_payout: '0.00',
+    };
+    let totalPayoutStr = '0.00';
+    try {
+        totalPayoutStr = sumMoneyParts(rows.map((r) => r.total_payout));
+    } catch {
+        totalPayoutStr = rows
+            .reduce((s, r) => s + Number(r.total_payout || 0), 0)
+            .toFixed(2);
+    }
+    totals.total_payout = parseFloat(totalPayoutStr);
 
     // per-program breakdown
     const byProgram = {};
     for (const r of rows) {
         const key = r.program_type || 'unknown';
         if (!byProgram[key]) {
-            byProgram[key] = { count: 0, days_worked: 0, total_payout: 0 };
+            byProgram[key] = { count: 0, days_worked: 0, total_payout: '0.00', _parts: [] };
         }
         byProgram[key].count += 1;
         byProgram[key].days_worked += Number(r.days_worked || 0);
-        byProgram[key].total_payout += Number(r.total_payout || 0);
+        byProgram[key]._parts.push(r.total_payout);
     }
+    for (const key of Object.keys(byProgram)) {
+        const bucket = byProgram[key];
+        let progTotalStr = '0.00';
+        try {
+            progTotalStr = sumMoneyParts(bucket._parts);
+        } catch {
+            progTotalStr = bucket._parts
+                .reduce((s, p) => s + Number(p || 0), 0)
+                .toFixed(2);
+        }
+        bucket.total_payout = parseFloat(progTotalStr);
+        delete bucket._parts;
+    }
+
+    const sampleDaily = rows.length > 0 ? String(rows[0].daily_wage) : await getDailyWage();
 
     return {
         month: selectedMonth,
-        dailyWage: rows.length > 0 ? Number(rows[0].daily_wage) : await getDailyWage(),
+        dailyWage: parseFloat(sampleDaily),
         records: rows,
         totals,
         byProgram,
+        source: 'payroll_records',
+        calculation_note:
+            'days_worked and daily_wage are stored per row; total_payout is derived as days × wage when an admin runs Generate Payroll from attendance.',
     };
 };
 
 // ── Approve payroll for a month ─────────────────────
 
 exports.approvePayroll = async (monthInput, programType, adminUserId) => {
-    await ensureTables();
+    await ensurePayrollSchema();
+    const uid = Number(adminUserId);
+    if (!adminUserId || !Number.isFinite(uid) || uid <= 0) {
+        throw new Error('Valid approver user id is required for payroll audit trail');
+    }
     const selectedMonth = sanitiseMonth(monthInput);
 
     let query = `
@@ -264,7 +339,7 @@ exports.approvePayroll = async (monthInput, programType, adminUserId) => {
         SET status = 'Approved', approved_by = ?, approved_at = NOW()
         WHERE payroll_month = ? AND status = 'Pending'
     `;
-    const params = [adminUserId, selectedMonth];
+    const params = [uid, selectedMonth];
 
     if (programType) {
         query += ` AND LOWER(program_type) = LOWER(?)`;
@@ -278,15 +353,19 @@ exports.approvePayroll = async (monthInput, programType, adminUserId) => {
 // ── Mark payroll as released ────────────────────────
 
 exports.releasePayroll = async (monthInput, programType, adminUserId) => {
-    await ensureTables();
+    await ensurePayrollSchema();
+    const uid = Number(adminUserId);
+    if (!adminUserId || !Number.isFinite(uid) || uid <= 0) {
+        throw new Error('Valid releaser user id is required for payroll audit trail');
+    }
     const selectedMonth = sanitiseMonth(monthInput);
 
     let query = `
         UPDATE payroll_records
-        SET status = 'Released'
+        SET status = 'Released', released_by = ?, released_at = NOW()
         WHERE payroll_month = ? AND status = 'Approved'
     `;
-    const params = [selectedMonth];
+    const params = [uid, selectedMonth];
 
     if (programType) {
         query += ` AND LOWER(program_type) = LOWER(?)`;
@@ -346,32 +425,63 @@ exports.releasePayroll = async (monthInput, programType, adminUserId) => {
 
 // ── Disbursement CRUD ────────────────────────────────
 
-exports.createDisbursement = async (data) => {
-    await ensureTables();
+/**
+ * Creates a disbursement batch with validated amounts and creator audit field.
+ * @param {object} data Payload from admin UI / API.
+ * @param {number} createdByUserId Authenticated admin user id.
+ */
+exports.createDisbursement = async (data, createdByUserId) => {
+    await ensurePayrollSchema();
+    const uid = Number(createdByUserId);
+    if (!createdByUserId || !Number.isFinite(uid) || uid <= 0) {
+        throw new Error('Valid creator user id is required for disbursement audit trail');
+    }
+
     const {
         program_type, payroll_month, total_amount, recipient_count,
         payment_mode, scheduled_date, notes
-    } = data;
+    } = data || {};
+
+    const prog = String(program_type || '').trim();
+    if (!prog || prog.length > 64) {
+        throw new Error('program_type is required (max 64 characters)');
+    }
+
+    const monthNorm = sanitiseMonth(payroll_month);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthNorm)) {
+        throw new Error('payroll_month must be YYYY-MM');
+    }
+
+    const totalStr = normalizeMoneyString(total_amount ?? '0');
+    const recipients = Number(recipient_count);
+    if (!Number.isInteger(recipients) || recipients < 0) {
+        throw new Error('recipient_count must be a non-negative integer');
+    }
+
+    const mode = payment_mode || 'Cash';
+    const allowedModes = ['GCash', 'Cash', 'Bank Transfer'];
+    if (!allowedModes.includes(mode)) {
+        throw new Error(`payment_mode must be one of: ${allowedModes.join(', ')}`);
+    }
 
     // Auto-generate a unique batch code
-    const prefix = (payment_mode || 'Cash') === 'GCash' ? 'GC' : (payment_mode === 'Bank Transfer' ? 'BT' : 'CH');
+    const prefix = mode === 'GCash' ? 'GC' : (mode === 'Bank Transfer' ? 'BT' : 'CH');
     const year = new Date().getFullYear();
     const rand = Math.floor(Math.random() * 900) + 100;
     const batchCode = `${prefix}-${year}-${rand}`;
 
     const [result] = await db.execute(
         `INSERT INTO disbursements
-            (batch_code, program_type, payroll_month, total_amount, recipient_count, payment_mode, scheduled_date, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [batchCode, program_type, payroll_month, total_amount || 0, recipient_count || 0,
-         payment_mode || 'Cash', scheduled_date || null, notes || null]
+            (batch_code, program_type, payroll_month, total_amount, recipient_count, payment_mode, scheduled_date, notes, created_by, status_updated_by, status_updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [batchCode, prog, monthNorm, totalStr, recipients, mode, scheduled_date || null, notes || null, uid, uid]
     );
 
     return { disbursement_id: result.insertId, batch_code: batchCode };
 };
 
 exports.getDisbursements = async (monthInput = null) => {
-    await ensureTables();
+    await ensurePayrollSchema();
     let query = `SELECT * FROM disbursements`;
     const params = [];
 
@@ -386,23 +496,32 @@ exports.getDisbursements = async (monthInput = null) => {
 };
 
 exports.updateDisbursementStatus = async (disbursementId, status, adminUserId, referenceNumber = null) => {
-    await ensureTables();
+    await ensurePayrollSchema();
+    const uid = Number(adminUserId);
+    if (!adminUserId || !Number.isFinite(uid) || uid <= 0) {
+        throw new Error('Valid actor user id is required for disbursement status audit trail');
+    }
+
     const validStatuses = ['Scheduled', 'Processing', 'Released', 'Failed'];
     if (!validStatuses.includes(status)) {
         throw new Error(`Invalid status. Must be one of: ${validStatuses.join(', ')}`);
     }
 
-    let query = `UPDATE disbursements SET status = ?`;
-    const params = [status];
+    let query = `UPDATE disbursements SET status = ?, status_updated_by = ?, status_updated_at = NOW()`;
+    const params = [status, uid];
 
     if (status === 'Released') {
         query += `, released_date = CURDATE(), released_by = ?`;
-        params.push(adminUserId);
+        params.push(uid);
     }
 
     if (referenceNumber) {
+        const ref = String(referenceNumber).trim();
+        if (ref.length > 100) {
+            throw new Error('reference_number must be at most 100 characters');
+        }
         query += `, reference_number = ?`;
-        params.push(referenceNumber);
+        params.push(ref || null);
     }
 
     query += ` WHERE disbursement_id = ?`;
@@ -415,7 +534,7 @@ exports.updateDisbursementStatus = async (disbursementId, status, adminUserId, r
 // ── Analytics ────────────────────────────────────────
 
 exports.getPayrollAnalytics = async (monthInput = null) => {
-    await ensureTables();
+    await ensurePayrollSchema();
 
     // Monthly payroll trend (last 12 months)
     const [monthlyTrend] = await db.execute(`
@@ -515,7 +634,7 @@ exports.getPayrollAnalytics = async (monthInput = null) => {
 // ── Beneficiary payout history (for beneficiary portal) ─
 
 exports.getBeneficiaryPayouts = async (userId) => {
-    await ensureTables();
+    await ensurePayrollSchema();
 
     const [rows] = await db.execute(`
         SELECT
@@ -532,14 +651,19 @@ exports.getBeneficiaryPayouts = async (userId) => {
         ORDER BY pr.payroll_month DESC
     `, [userId]);
 
-    const totals = rows.reduce(
-        (acc, r) => {
-            acc.total_payout += Number(r.total_payout || 0);
-            acc.total_days += Number(r.days_worked || 0);
-            return acc;
-        },
-        { total_payout: 0, total_days: 0 }
-    );
+    const totals = {
+        total_days: rows.reduce((s, r) => s + Number(r.days_worked || 0), 0),
+        total_payout: '0.00',
+    };
+    let totalStr = '0.00';
+    try {
+        totalStr = sumMoneyParts(rows.map((r) => r.total_payout));
+    } catch {
+        totalStr = rows
+            .reduce((s, r) => s + Number(r.total_payout || 0), 0)
+            .toFixed(2);
+    }
+    totals.total_payout = parseFloat(totalStr);
 
     return { records: rows, totals };
 };

@@ -223,6 +223,25 @@ const landscapeSetup = {
 // JSON endpoints — for frontend dashboard display
 // ══════════════════════════════════════════════════════
 
+// ── NEW: Analytics Summary Report ─────────────────────
+
+exports.getSummaryReport = async (req, res) => {
+    try {
+        const { program, sort, timeRange } = req.query;
+        
+        const data = await reportService.getSummaryReport({
+            program: program || 'all',
+            timeRange: timeRange || 'year',
+            sortOrder: sort || 'asc'
+        });
+        
+        res.json(data);
+    } catch (error) {
+        console.error('Summary report error:', error.message);
+        res.status(500).json({ message: error.message || 'Error generating summary report' });
+    }
+};
+
 exports.getProgramAccomplishment = async (req, res) => {
     try {
         const { month } = req.query;
@@ -247,12 +266,30 @@ exports.getBeneficiaryMasterList = async (req, res) => {
 
 exports.getBarangayBeneficiaries = async (req, res) => {
     try {
+        const { program, timeRange, sortOrder, barangay } = req.query;
         const barangayService = require('../services/barangay.service');
-        const data = await barangayService.getBarangayBeneficiariesStats();
+        const data = await barangayService.getFilteredBarangays({
+            program: program || null,
+            timeRange: timeRange || 'year',
+            sortOrder: sortOrder || 'asc',
+            selectedBarangay: barangay || null
+        });
         res.json(data);
     } catch (error) {
         console.error('Barangay beneficiaries error:', error.message);
         res.status(500).json({ message: error.message || 'Error fetching barangay data' });
+    }
+};
+
+// Get list of all barangays (names only)
+exports.getBarangayList = async (req, res) => {
+    try {
+        const barangayService = require('../services/barangay.service');
+        const data = await barangayService.getBarangayList();
+        res.json(data);
+    } catch (error) {
+        console.error('Barangay list error:', error.message);
+        res.status(500).json({ message: error.message || 'Error fetching barangay list' });
     }
 };
 

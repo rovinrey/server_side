@@ -663,6 +663,175 @@ exports.getGipReport = async (month = null) => {
 };
 
 // ══════════════════════════════════════════════════════
+// 10. ANALYTICS SUMMARY REPORT (NEW)
+// ══════════════════════════════════════════════════════
+
+let cachedAnalyticsSchema = null;
+
+async function getAnalyticsSchemaFlags() {
+    if (cachedAnalyticsSchema) return cachedAnalyticsSchema;
+    const [tables] = await db.execute(`SHOW TABLES LIKE 'barangays'`);
+    const [createdCol] = await db.execute(
+        `SELECT 1 FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'beneficiaries' AND COLUMN_NAME = 'created_at' LIMIT 1`
+    );
+    const [barangayIdCol] = await db.execute(
+        `SELECT 1 FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'beneficiaries' AND COLUMN_NAME = 'barangay_id' LIMIT 1`
+    );
+    cachedAnalyticsSchema = {
+        hasBarangaysTable: tables.length > 0,
+        hasBeneficiaryCreatedAt: createdCol.length > 0,
+        hasBeneficiaryBarangayId: barangayIdCol.length > 0,
+    };
+    return cachedAnalyticsSchema;
+}
+
+function normalizeTimeRange(timeRange) {
+    if (timeRange === undefined || timeRange === null || String(timeRange).trim() === '') {
+        return 'year';
+    }
+    const key = String(timeRange).toLowerCase().replace(/[\s_-]+/g, ' ').trim();
+    const compact = key.replace(/\s/g, '');
+    const map = {
+        today: 'today',
+        'last week': 'week',
+        lastweek: 'week',
+        week: 'week',
+        month: 'month',
+        '6 months': '6months',
+        '6months': '6months',
+        sixmonths: '6months',
+        year: 'year',
+    };
+    return map[key] || map[compact] || 'year';
+}
+
+function normalizeSortOrder(sort) {
+    if (!sort || String(sort).trim() === '') return 'asc';
+    const s = String(sort).toLowerCase().trim();
+    if (s === 'z-a' || s === 'z_a' || s === 'desc' || s === 'descending') return 'desc';
+    if (s === 'a-z' || s === 'a_z' || s === 'asc' || s === 'ascending') return 'asc';
+    return 'asc';
+}
+
+function buildIntervalClause(range, dateExpr) {
+    switch (range) {
+        case 'today':
+            return `AND DATE(${dateExpr}) = CURDATE()`;
+        case 'week':
+            return `AND ${dateExpr} >= NOW() - INTERVAL 7 DAY`;
+        case 'month':
+            return `AND ${dateExpr} >= NOW() - INTERVAL 1 MONTH`;
+        case '6months':
+            return `AND ${dateExpr} >= NOW() - INTERVAL 6 MONTH`;
+        case 'year':
+            return `AND ${dateExpr} >= NOW() - INTERVAL 1 YEAR`;
+        default:
+            return '';
+    }
+}
+
+/**
+ * Beneficiary counts by barangay (Male / Female / Total).
+ * Joins beneficiaries → applications (program_type); optional barangays; program_enrollees → programs.
+ * Date filter uses COALESCE(beneficiary.created_at, application.applied_at) when created_at exists.
+ */
+exports.getSummaryReport = async ({ program, timeRange, sortOrder }) => {
+    const flags = await getAnalyticsSchemaFlags();
+    const range = normalizeTimeRange(timeRange);
+    const sort = normalizeSortOrder(sortOrder);
+    const prog = program && String(program).toLowerCase() !== 'all' ? program : null;
+
+    const dateExpr = flags.hasBeneficiaryCreatedAt
+        ? 'COALESCE(b.created_at, a.applied_at)'
+        : 'a.applied_at';
+
+    const barangayJoin = flags.hasBarangaysTable
+        ? 'LEFT JOIN barangays br ON b.barangay_id = br.barangay_id'
+        : '';
+
+    const barangayExpr = flags.hasBarangaysTable
+        ? `TRIM(COALESCE(br.name, SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(b.address), ',', 2), ',', -1)))`
+        : `TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(b.address), ',', 2), ',', -1))`;
+
+    const locationClause = flags.hasBeneficiaryBarangayId
+        ? `(b.barangay_id IS NOT NULL OR (b.address IS NOT NULL AND TRIM(b.address) <> ''))`
+        : `(b.address IS NOT NULL AND TRIM(b.address) <> '')`;
+
+    const intervalClause = buildIntervalClause(range, dateExpr);
+    const programFilter = prog ? 'AND LOWER(a.program_type) = LOWER(?)' : '';
+    const programParams = prog ? [prog] : [];
+
+    const orderClause = sort === 'desc' ? 'ORDER BY t.barangay DESC' : 'ORDER BY t.barangay ASC';
+
+    const sql = `
+        SELECT
+            t.barangay,
+            SUM(t.male_flag) AS male_count,
+            SUM(t.female_flag) AS female_count,
+            COUNT(*) AS total
+        FROM (
+            SELECT
+                ${barangayExpr} AS barangay,
+                CASE WHEN b.gender = 'Male' THEN 1 ELSE 0 END AS male_flag,
+                CASE WHEN b.gender = 'Female' THEN 1 ELSE 0 END AS female_flag
+            FROM beneficiaries b
+            INNER JOIN applications a ON b.user_id = a.user_id AND a.status = 'Approved'
+            ${barangayJoin}
+            LEFT JOIN program_enrollees pe ON pe.application_id = a.application_id
+            LEFT JOIN programs p ON p.program_id = pe.program_id
+            WHERE ${locationClause}
+            ${intervalClause}
+            ${programFilter}
+        ) t
+        WHERE t.barangay IS NOT NULL AND TRIM(t.barangay) <> ''
+        GROUP BY t.barangay
+        ${orderClause}
+    `;
+
+    const [rows] = await db.execute(sql, programParams);
+    return processResults(rows, sort);
+};
+
+// Helper function to process results and calculate totals
+const processResults = (rows, sortOrder) => {
+    // Handle empty results
+    if (!rows || rows.length === 0) {
+        return {
+            barangays: [],
+            summary: {
+                total_male: 0,
+                total_female: 0,
+                grand_total: 0
+            }
+        };
+    }
+
+    // Clean up barangay names
+    const cleanedRows = rows.map(row => ({
+        barangay: row.barangay || 'Unknown',
+        male: parseInt(row.male_count) || 0,
+        female: parseInt(row.female_count) || 0,
+        total: parseInt(row.total) || 0
+    }));
+
+    // Calculate totals
+    const totalMale = cleanedRows.reduce((sum, row) => sum + row.male, 0);
+    const totalFemale = cleanedRows.reduce((sum, row) => sum + row.female, 0);
+    const grandTotal = cleanedRows.reduce((sum, row) => sum + row.total, 0);
+
+    return {
+        barangays: cleanedRows,
+        summary: {
+            total_male: totalMale,
+            total_female: totalFemale,
+            grand_total: grandTotal
+        }
+    };
+};
+
+// ══════════════════════════════════════════════════════
 // 9. QUARTERLY / ANNUAL CONSOLIDATED REPORT
 // ══════════════════════════════════════════════════════
 

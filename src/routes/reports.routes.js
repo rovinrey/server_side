@@ -7,6 +7,9 @@ const { requireAdminOrStaff } = require('../validators/common.validators');
 
 // ── JSON endpoints (for frontend display) ──────────
 
+// ── NEW: Analytics Summary Report ─────────────────────
+router.get('/summary', authMiddleware, requireAdminOrStaff, reportsController.getSummaryReport);
+
 router.get('/program-accomplishment', authMiddleware, requireAdminOrStaff, reportsController.getProgramAccomplishment);
 router.get('/beneficiary-master-list', authMiddleware, requireAdminOrStaff, reportsController.getBeneficiaryMasterList);
 router.get('/payroll-summary', authMiddleware, requireAdminOrStaff, reportsController.getPayrollSummary);
@@ -17,6 +20,7 @@ router.get('/spes', authMiddleware, requireAdminOrStaff, reportsController.getSp
 router.get('/gip', authMiddleware, requireAdminOrStaff, reportsController.getGipReport);
 router.get('/consolidated', authMiddleware, requireAdminOrStaff, reportsController.getConsolidatedReport);
 router.get('/barangay-beneficiaries', authMiddleware, requireAdminOrStaff, reportsController.getBarangayBeneficiaries);
+router.get('/barangay-list', authMiddleware, requireAdminOrStaff, reportsController.getBarangayList);
 
 // ── Excel export endpoints ─────────────────────────
 
