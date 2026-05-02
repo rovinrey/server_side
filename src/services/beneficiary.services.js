@@ -1609,10 +1609,10 @@ exports.getProgramEnrollees = async (programId) => {
       b.birth_date,
       p.program_name
     FROM program_enrollees pe
-    LEFT JOIN applications a ON pe.application_id = a.application_id
-    LEFT JOIN beneficiaries b ON a.user_id = b.user_id
-    LEFT JOIN users u ON a.user_id = u.user_id
-    LEFT JOIN programs p ON pe.program_id = p.program_id
+    INNER JOIN applications a ON pe.application_id = a.application_id
+    INNER JOIN beneficiaries b ON a.user_id = b.user_id
+    INNER JOIN users u ON a.user_id = u.user_id
+    INNER JOIN programs p ON pe.program_id = p.program_id
     WHERE pe.program_id = ?
     ORDER BY pe.enrollment_date DESC
   `;
