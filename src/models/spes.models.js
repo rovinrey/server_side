@@ -1,16 +1,16 @@
-const db = require('../../config');
+import db from '../../config.js';
 
 // Model for SPES application
-exports.createSpesApplication = async (connection, userId) => {
+export async function createSpesApplication(connection, userId) {
     const [result] = await connection.query(
         `INSERT INTO applications (user_id, program_type)
          VALUES (?, 'spes')`,
         [userId]
     );
     return result.insertId;
-};
+}
 
-exports.createSpesDetails = async (connection, data) => {
+export async function createSpesDetails(connection, data) {
     const query = `
         INSERT INTO spes_details (
             application_id, place_of_birth, citizenship, social_media_account,
@@ -46,22 +46,22 @@ exports.createSpesDetails = async (connection, data) => {
 
     const [result] = await connection.query(query, values);
     return result.insertId;
-};
+}
 
-exports.getSpesDetailsByApplicationId = async (connection, applicationId) => {
+export async function getSpesDetailsByApplicationId(connection, applicationId) {
     const [rows] = await connection.query(
         'SELECT * FROM spes_details WHERE application_id = ?',
         [applicationId]
     );
     return rows[0] || null;
-};
+}
 
 // Additional utility: update status (for approval flow)
-exports.updateApplicationStatus = async (connection, applicationId, status) => {
+export async function updateApplicationStatus(connection, applicationId, status) {
     const [result] = await connection.query(
         'UPDATE applications SET status = ? WHERE application_id = ?',
         [status, applicationId]
     );
     return result.affectedRows > 0;
-};
+}
 

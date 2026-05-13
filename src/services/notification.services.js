@@ -1,4 +1,4 @@
-const db = require('../../config');
+import { execute } from '../../config.js';
 
 const ALLOWED_NOTIFICATION_TYPES = new Set([
     'program_available',
@@ -18,7 +18,7 @@ function normalizeNotificationType(type) {
 }
 
 async function applicationsTableHasProgramId() {
-    const [cols] = await db.execute(
+    const [cols] = await execute(
         `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'applications' AND COLUMN_NAME = 'program_id'`
     );
@@ -38,7 +38,7 @@ const notifyAllBeneficiaries = async ({ title, message, type, program_id }) => {
 
     const notifType = normalizeNotificationType(type);
 
-    const [beneficiaries] = await db.execute(
+    const [beneficiaries] = await execute(
         "SELECT user_id FROM users WHERE role = 'beneficiary' AND user_id IS NOT NULL"
     );
 
@@ -56,7 +56,7 @@ const notifyAllBeneficiaries = async ({ title, message, type, program_id }) => {
             b.user_id, title, message, notifType, program_id || null
         ]);
 
-        await db.execute(
+        await execute(
             `INSERT INTO notifications (user_id, title, message, type, program_id) VALUES ${placeholders}`,
             values
         );
@@ -76,7 +76,7 @@ const getUserNotifications = async (userId, { limit = 20, offset = 0 } = {}) => 
     const safeLimit = Math.max(1, Math.min(parseInt(limit) || 20, 100));
     const safeOffset = Math.max(0, parseInt(offset) || 0);
     
-    const [rows] = await db.execute(
+    const [rows] = await execute(
         `SELECT n.notification_id, n.title, n.message, n.type, n.is_read, n.created_at,
                 n.program_id, p.program_name, p.status AS program_status, p.start_date, p.end_date
          FROM notifications n
@@ -95,7 +95,7 @@ const getUserNotifications = async (userId, { limit = 20, offset = 0 } = {}) => 
 const getUnreadCount = async (userId) => {
     if (!userId) throw new Error('User ID is required');
     
-    const [rows] = await db.execute(
+    const [rows] = await execute(
         'SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0',
         [userId]
     );
@@ -110,7 +110,7 @@ const markAsRead = async (notificationId, userId) => {
         throw new Error('Notification ID and User ID are required');
     }
     
-    const [result] = await db.execute(
+    const [result] = await execute(
         'UPDATE notifications SET is_read = 1 WHERE notification_id = ? AND user_id = ?',
         [notificationId, userId]
     );
@@ -125,7 +125,7 @@ const markAllAsRead = async (userId) => {
         throw new Error('User ID is required');
     }
     
-    await db.execute(
+    await execute(
         'UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0',
         [userId]
     );
@@ -147,7 +147,7 @@ const notifyEligibleBeneficiaries = async ({ title, message, type, program_id })
         return notifyAllBeneficiaries({ title, message, type: notifType, program_id });
     }
 
-    const [eligible] = await db.execute(
+    const [eligible] = await execute(
         `
         SELECT u.user_id
         FROM users u
@@ -172,14 +172,24 @@ const notifyEligibleBeneficiaries = async ({ title, message, type, program_id })
             b.user_id, title, message, notifType, program_id
         ]);
 
-        await db.execute(
+        await execute(
             `INSERT INTO notifications (user_id, title, message, type, program_id) VALUES ${placeholders}`,
             values
         );
     }
 };
 
-module.exports = {
+export {
+    normalizeNotificationType,
+    notifyAllBeneficiaries,
+    notifyEligibleBeneficiaries,
+    getUserNotifications,
+    getUnreadCount,
+    markAsRead,
+    markAllAsRead,
+};
+
+export default {
     normalizeNotificationType,
     notifyAllBeneficiaries,
     notifyEligibleBeneficiaries,

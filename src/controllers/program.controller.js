@@ -1,6 +1,7 @@
-const db = require('../../config');
-const { notifyAllBeneficiaries } = require('../services/notification.services');
-const programsService = require('../services/programs.services');
+import { execute } from '../../config.js';
+import { notifyAllBeneficiaries } from '../services/notification.services.js';
+import { getReadyPrograms as getReadyProgramsService } from '../services/programs.services.js';
+
 
 // Map program status to a notification type and human-readable label
 const getNotificationMeta = (status) => {
@@ -20,7 +21,7 @@ const getNotificationMeta = (status) => {
 };
 
 // Create a new program (admin only)
-exports.createProgram = async (req, res) => {
+export async function createProgram(req, res) {
     try {
         if (req.user?.role !== 'admin') {
             return res.status(403).json({ message: 'Only admin can create programs' });
@@ -37,7 +38,7 @@ exports.createProgram = async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)
         `;
 
-        const [result] = await db.execute(query, [
+        const [result] = await execute(query, [
             name, location, slots, budget, status,
             start_date || null, end_date || null
         ]);
@@ -81,24 +82,24 @@ exports.createProgram = async (req, res) => {
         console.error("Error creating program:", error);
         res.status(500).json({ message: "Error creating program", error: error.message });
     }
-};
+}
 
 // Get READY programs for beneficiary dashboard
-exports.getReadyPrograms = async (req, res) => {
+export async function getReadyPrograms(req, res) {
     try {
-        const programs = await programsService.getReadyPrograms();
+        const programs = await getReadyPrograms();
         res.status(200).json(programs);
     } catch (error) {
         console.error("Error fetching ready programs:", error);
         res.status(500).json({ message: "Error fetching ready programs", error: error.message });
     }
-};
+}
 
 // Get all programs
-exports.getAllPrograms = async (req, res) => {
+export async function getAllPrograms(req, res) {
     try {
         // Check if program_id column exists in applications table
-        const [cols] = await db.execute(
+        const [cols] = await execute(
             `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'applications' AND COLUMN_NAME = 'program_id'`
         );
@@ -116,23 +117,23 @@ exports.getAllPrograms = async (req, res) => {
                FROM programs p
                ORDER BY p.program_id DESC`;
 
-        const [programs] = await db.execute(query);
+        const [programs] = await execute(query);
         res.status(200).json(programs);
     } catch (error) {
         console.error("Error fetching programs:", error);
         res.status(500).json({ message: "Error fetching programs", error: error.message });
     }
-};
+}
 
 // Get active programs for a given program type (for beneficiary program picker)
-exports.getActiveByType = async (req, res) => {
+export async function getActiveByType(req, res) {
     try {
         const { programType } = req.params;
         const allowed = ['tupad', 'spes', 'dilp', 'gip', 'job_seekers'];
         if (!allowed.includes(programType.toLowerCase())) {
             return res.status(400).json({ message: 'Invalid program type' });
         }
-        const [rows] = await db.execute(
+        const [rows] = await execute(
             `SELECT program_id, program_name, location, slots, filled, budget, status, start_date, end_date
              FROM programs
              WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
@@ -145,14 +146,14 @@ exports.getActiveByType = async (req, res) => {
         console.error('Error fetching active programs by type:', error);
         res.status(500).json({ message: 'Error fetching programs', error: error.message });
     }
-};
+}
 
 // Get a single program
-exports.getProgram = async (req, res) => {
+export async function getProgram(req, res) {
     try {
         const { program_id } = req.params;
         const query = 'SELECT * FROM programs WHERE program_id = ?';
-        const [program] = await db.execute(query, [program_id]);
+        const [program] = await execute(query, [program_id]);
         
         if (program.length === 0) {
             return res.status(404).json({ message: "Program not found" });
@@ -163,10 +164,10 @@ exports.getProgram = async (req, res) => {
         console.error("Error fetching program:", error);
         res.status(500).json({ message: "Error fetching program", error: error.message });
     }
-};
+}
 
 // Update a program (admin only)
-exports.updateProgram = async (req, res) => {
+export async function updateProgram(req, res) {
     try {
         if (req.user?.role !== 'admin') {
             return res.status(403).json({ message: 'Only admin can update programs' });
@@ -175,7 +176,7 @@ exports.updateProgram = async (req, res) => {
         const { program_id } = req.params;
         const { name, location, slots, budget, status, start_date, end_date } = req.body;
 
-        const [existingRows] = await db.execute(
+        const [existingRows] = await execute(
             'SELECT status FROM programs WHERE program_id = ?',
             [program_id]
         );
@@ -192,7 +193,7 @@ exports.updateProgram = async (req, res) => {
             WHERE program_id = ?
         `;
 
-        const [result] = await db.execute(query, [
+        const [result] = await execute(query, [
             name, location, slots, budget, status,
             start_date || null, end_date || null,
             program_id
@@ -221,10 +222,10 @@ exports.updateProgram = async (req, res) => {
         console.error("Error updating program:", error);
         res.status(500).json({ message: "Error updating program", error: error.message });
     }
-};
+}
 
 // Delete a program (admin only)
-exports.deleteProgram = async (req, res) => {
+export async function deleteProgram(req, res) {
     try {
         if (req.user?.role !== 'admin') {
             return res.status(403).json({ message: 'Only admin can delete programs' });
@@ -233,7 +234,7 @@ exports.deleteProgram = async (req, res) => {
         const { program_id } = req.params;
         
         const query = 'DELETE FROM programs WHERE program_id = ?';
-        const [result] = await db.execute(query, [program_id]);
+        const [result] = await execute(query, [program_id]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Program not found" });
@@ -244,4 +245,4 @@ exports.deleteProgram = async (req, res) => {
         console.error("Error deleting program:", error);
         res.status(500).json({ message: "Error deleting program", error: error.message });
     }
-};
+}

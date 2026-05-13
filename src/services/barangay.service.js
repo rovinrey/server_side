@@ -1,4 +1,4 @@
-const db = require('../../config');
+import { execute } from '../../config.js';
 
 // List of all 25 barangays in Juban, Sorsogon
 const JUBAN_BARANGAYS = [
@@ -30,11 +30,11 @@ const JUBAN_BARANGAYS = [
 ];
 
 // Get list of all barangays
-exports.getBarangayList = async () => {
+export async function getBarangayList() {
     return {
         barangays: JUBAN_BARANGAYS.map(name => ({ name }))
     };
-};
+}
 
 // Helper function to calculate date filters based on timeRange
 const getDateFilter = (timeRange) => {
@@ -106,7 +106,7 @@ const normalizeProgramType = (programType) => {
 };
 
 // Main function to get filtered barangay data
-exports.getFilteredBarangays = async ({ program, timeRange, sortOrder, selectedBarangay }) => {
+export async function getFilteredBarangays({ program, timeRange, sortOrder, selectedBarangay }) {
     // Build the WHERE clause
     let whereConditions = [];
     let params = [];
@@ -173,7 +173,7 @@ exports.getFilteredBarangays = async ({ program, timeRange, sortOrder, selectedB
     console.log('Barangay query:', sql);
     console.log('Params:', params);
     
-    const [rows] = await db.execute(sql, params);
+    const [rows] = await execute(sql, params);
     
     // Debug: Log sample addresses to understand format
     if (rows.length > 0) {
@@ -267,11 +267,11 @@ exports.getFilteredBarangays = async ({ program, timeRange, sortOrder, selectedB
             rowsWithBarangay: processedData.length
         }
     };
-};
+}
 
 // Legacy function for backwards compatibility
-exports.getBarangayBeneficiariesStats = async () => {
-    const [rows] = await db.execute(`
+export async function getBarangayBeneficiariesStats() {
+    const [rows] = await execute(`
         SELECT 
             SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(b.address), ',', 2), ',', -1) AS barangay,
             SUM(CASE WHEN LOWER(TRIM(b.gender)) = 'male' THEN 1 ELSE 0 END) AS male_count,
@@ -301,4 +301,4 @@ exports.getBarangayBeneficiariesStats = async () => {
             grand_total: grandTotal
         }
     };
-};
+}

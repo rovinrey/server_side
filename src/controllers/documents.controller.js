@@ -1,7 +1,7 @@
-const documentsService = require('../services/documents.services');
-const path = require('path');
-const fs = require('fs');
-const db = require('../../config');
+import { getAllDocumentsByUser, getDocumentsByUserAndProgram, uploadDocument, deleteDocument, verifyDocument, rejectDocument, getDocumentsByApplicationId } from '../services/documents.services.js';
+import { basename } from 'path';
+import { existsSync, unlinkSync } from 'fs';
+import { query } from '../../config.js';
 
 const VALID_PROGRAMS = ['tupad', 'spes', 'dilp', 'gip', 'job_seekers'];
 
@@ -32,7 +32,7 @@ const calculateAge = (birthDate) => {
 };
 
 const getUserBirthDate = async (userId) => {
-    const [rows] = await db.query(
+    const [rows] = await query(
         'SELECT birth_date FROM beneficiaries WHERE user_id = ? LIMIT 1',
         [userId]
     );
@@ -58,12 +58,12 @@ const getProgramRequirementsForUser = async (userId, programType) => {
  * GET /api/documents/status/all
  * Returns per-program document submission status across all programs for the authenticated user.
  */
-exports.getAllDocumentStatus = async (req, res) => {
+export async function handleGetAllDocumentStatus(req, res) {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
     try {
-        const allDocs = await documentsService.getAllDocumentsByUser(userId);
+        const allDocs = await getAllDocumentsByUser(userId);
 
         // Group documents by program_type
         const byProgram = {};
@@ -78,7 +78,7 @@ exports.getAllDocumentStatus = async (req, res) => {
                 file_size: doc.file_size,
                 mime_type: doc.mime_type,
                 uploaded_at: doc.uploaded_at,
-                url: `/uploads/beneficiary-documents/${path.basename(doc.file_path)}`,
+                url: `/uploads/beneficiary-documents/${basename(doc.file_path)}`,
             });
         });
 
@@ -105,13 +105,13 @@ exports.getAllDocumentStatus = async (req, res) => {
         console.error('Error fetching all document status:', error.message);
         return res.status(500).json({ message: 'Error fetching document status' });
     }
-};
+}
 
 /**
  * GET /api/documents/:programType
  * Returns all uploaded documents for the authenticated user + program.
  */
-exports.getDocuments = async (req, res) => {
+export async function handleGetDocuments(req, res) {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -121,7 +121,7 @@ exports.getDocuments = async (req, res) => {
     }
 
     try {
-        const documents = await documentsService.getDocumentsByUserAndProgram(userId, programType);
+        const documents = await getDocumentsByUserAndProgram(userId, programType);
 
         const mapped = documents.map((doc) => ({
             document_id: doc.document_id,
@@ -130,7 +130,7 @@ exports.getDocuments = async (req, res) => {
             file_size: doc.file_size,
             mime_type: doc.mime_type,
             uploaded_at: doc.uploaded_at,
-            url: `/uploads/beneficiary-documents/${path.basename(doc.file_path)}`,
+            url: `/uploads/beneficiary-documents/${basename(doc.file_path)}`,
         }));
 
         return res.status(200).json({ documents: mapped });
@@ -138,24 +138,24 @@ exports.getDocuments = async (req, res) => {
         console.error('Error fetching documents:', error.message);
         return res.status(500).json({ message: 'Error fetching documents' });
     }
-};
+}
 
 /**
  * POST /api/documents/upload
  * Body: program_type, document_type   |   File field: "document"
  */
-exports.uploadDocument = async (req, res) => {
+export async function handleUploadDocument(req, res) {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
     const { program_type, document_type } = req.body;
 
     if (!program_type || !VALID_PROGRAMS.includes(program_type)) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        if (req.file && existsSync(req.file.path)) unlinkSync(req.file.path);
         return res.status(400).json({ message: 'Invalid or missing program_type' });
     }
     if (!document_type || typeof document_type !== 'string' || document_type.trim() === '') {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        if (req.file && existsSync(req.file.path)) unlinkSync(req.file.path);
         return res.status(400).json({ message: 'Invalid or missing document_type' });
     }
     if (!req.file) {
@@ -163,7 +163,7 @@ exports.uploadDocument = async (req, res) => {
     }
 
     try {
-        const docId = await documentsService.uploadDocument(userId, program_type, document_type.trim(), req.file);
+        const docId = await uploadDocument(userId, program_type, document_type.trim(), req.file);
 
         return res.status(200).json({
             message: 'Document uploaded successfully',
@@ -172,19 +172,19 @@ exports.uploadDocument = async (req, res) => {
             original_name: req.file.originalname,
             file_size: req.file.size,
             mime_type: req.file.mimetype,
-            url: `/uploads/beneficiary-documents/${path.basename(req.file.path)}`,
+            url: `/uploads/beneficiary-documents/${basename(req.file.path)}`,
         });
     } catch (error) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        if (req.file && existsSync(req.file.path)) unlinkSync(req.file.path);
         console.error('Error uploading document:', error.message);
         return res.status(500).json({ message: 'Error uploading document' });
     }
-};
+}
 
 /**
  * DELETE /api/documents/:documentId
  */
-exports.deleteDocument = async (req, res) => {
+export async function handleDeleteDocument(req, res) {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -194,7 +194,7 @@ exports.deleteDocument = async (req, res) => {
     }
 
     try {
-        const deleted = await documentsService.deleteDocument(userId, documentId);
+        const deleted = await deleteDocument(userId, documentId);
         if (!deleted) {
             return res.status(404).json({ message: 'Document not found' });
         }
@@ -203,13 +203,13 @@ exports.deleteDocument = async (req, res) => {
         console.error('Error deleting document:', error.message);
         return res.status(500).json({ message: 'Error deleting document' });
     }
-};
+}
 
 /**
  * PUT /api/documents/:documentId/verify
  * Admin/Staff verifies a document
  */
-exports.verifyDocument = async (req, res) => {
+export async function handleVerifyDocument(req, res) {
     const userId = req.user?.id;
     const userRole = req.user?.role;
     
@@ -223,7 +223,7 @@ exports.verifyDocument = async (req, res) => {
     }
 
     try {
-        const result = await documentsService.verifyDocument(documentId, userId);
+        const result = await verifyDocument(documentId, userId);
         if (!result) {
             return res.status(404).json({ message: 'Document not found' });
         }
@@ -233,13 +233,13 @@ exports.verifyDocument = async (req, res) => {
         console.error('Error verifying document:', error.message);
         res.status(500).json({ message: 'Error verifying document' });
     }
-};
+}
 
 /**
  * PUT /api/documents/:documentId/reject
  * Admin/Staff rejects a document
  */
-exports.rejectDocument = async (req, res) => {
+export async function handleRejectDocument(req, res) {
     const userId = req.user?.id;
     const userRole = req.user?.role;
     
@@ -255,7 +255,7 @@ exports.rejectDocument = async (req, res) => {
     }
 
     try {
-        const result = await documentsService.rejectDocument(documentId, userId, reason);
+        const result = await rejectDocument(documentId, userId, reason);
         if (!result) {
             return res.status(404).json({ message: 'Document not found' });
         }
@@ -265,13 +265,13 @@ exports.rejectDocument = async (req, res) => {
         console.error('Error rejecting document:', error.message);
         res.status(500).json({ message: 'Error rejecting document' });
     }
-};
+}
 
 /**
  * GET /api/documents/:applicationId/verification-status
  * Get verification status of all documents for an application
  */
-exports.getDocumentVerificationStatus = async (req, res) => {
+export async function handleGetDocumentVerificationStatus(req, res) {
     const { applicationId } = req.params;
     
     if (!applicationId) {
@@ -279,10 +279,10 @@ exports.getDocumentVerificationStatus = async (req, res) => {
     }
 
     try {
-        const documents = await documentsService.getDocumentsByApplicationId(applicationId);
+        const documents = await getDocumentsByApplicationId(applicationId);
         res.json({ documents, totalCount: documents.length });
     } catch (error) {
         console.error('Error fetching document verification status:', error.message);
         res.status(500).json({ message: 'Error fetching document verification status' });
     }
-};
+}

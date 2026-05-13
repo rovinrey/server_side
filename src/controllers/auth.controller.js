@@ -1,65 +1,79 @@
 
 
-const authService = require('../services/auth.services');
-const passwordService = require('../services/password.services');
+import {
+    updateProfile as updateProfileService,
+    changePassword as changePasswordService,
+    signup as signupService,
+    login as loginService,
+    getProfile as getProfileService,
+    createUser as createUserService,
+} from '../services/auth.services.js';
+import passwordServices from '../services/password.services.js';
+
+// password.services.js is CommonJS (module.exports = { forgotPassword, resetPassword })
+const forgotPasswordService = passwordServices.forgotPassword;
+const resetPasswordService = passwordServices.resetPassword;
+
+// NOTE: password.services.js is CommonJS
 
 // POST /api/auth/updateProfile
-exports.updateProfile = async (req, res) => {
+export async function updateProfile(req, res) {
     try {
         const userId = req.user.id;
         const { user_name } = req.body;
-        const result = await authService.updateProfile(userId, user_name);
+        const result = await updateProfileService(userId, user_name);
         res.json(result);
     } catch (error) {
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}
 
 // POST /api/auth/changePassword
-exports.changePassword = async (req, res) => {
+export async function changePassword(req, res) {
     try {
         const userId = req.user.id;
         const { currentPassword, newPassword } = req.body;
-        const result = await authService.changePassword(userId, currentPassword, newPassword);
+        const result = await changePasswordService(userId, currentPassword, newPassword);
         res.json(result);
     } catch (error) {
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}
 
 // POST /api/auth/forgot-password
-exports.forgotPassword = async (req, res) => {
+export async function forgotPassword(req, res) {
     try {
         const { email } = req.body;
-        const result = await passwordService.forgotPassword(email);
+        const result = await forgotPasswordService(email);
         res.json(result);
     } catch (error) {
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}
 
 // POST /api/auth/reset-password
-exports.resetPassword = async (req, res) => {
+export async function resetPassword(req, res) {
     try {
         const { token, password } = req.body;
-        const result = await passwordService.resetPassword(token, password);
+        const result = await resetPasswordService(token, password);
         res.json(result);
     } catch (error) {
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}
 
-exports.signup = async (req, res) => {
+
+export async function signup(req, res) {
     try {
-        const result = await authService.signup(req.body);
+        const result = await signupService(req.body);
         res.status(201).json(result);
     } catch (error) {
         console.error('❌ Signup error:', {
@@ -72,11 +86,11 @@ exports.signup = async (req, res) => {
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}
 
-exports.login = async (req, res) => {
+export async function login(req, res) {
     try {
-        const data = await authService.login(req.body);
+        const data = await loginService(req.body);
         res.json(data);
     } catch (error) {
         console.error('Login error:', error); // Log the full error for debugging
@@ -84,30 +98,30 @@ exports.login = async (req, res) => {
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}
 
-exports.getProfile = async (req, res) => {
+export async function getProfile(req, res) {
     try {
         // Use the authenticated user's ID from the JWT token — never from query params
-        const data = await authService.getProfile(req.user.id);
+        const data = await getProfileService(req.user.id);
         res.json(data);
     } catch (error) {
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}
 
 // POST /api/auth/create-user (Admin only - for creating admin/staff accounts)
-exports.createUser = async (req, res) => {
+export async function createUser(req, res) {
     try {
         const adminId = req.user.id;
         const adminRole = req.user.role;
-        const result = await authService.createUser(adminId, adminRole, req.body);
+        const result = await createUserService(adminId, adminRole, req.body);
         res.status(201).json(result);
     } catch (error) {
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}

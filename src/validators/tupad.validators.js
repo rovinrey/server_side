@@ -1,4 +1,4 @@
-const db = require('../../config');
+import { execute } from '../../config.js';
 
 const calculateAge = (birthDateValue) => {
     const birthDate = new Date(birthDateValue);
@@ -25,7 +25,7 @@ const addMonths = (date, months) => {
 };
 
 const checkRecentTupadApplication = async (userId) => {
-    const [rows] = await db.execute(
+    const [rows] = await execute(
         `SELECT applied_at
          FROM applications  
             WHERE user_id = ? AND program_type = 'tupad'
@@ -37,7 +37,7 @@ const checkRecentTupadApplication = async (userId) => {
 };
 
 // validators/tupadValidator.js
-exports.validateTupad = async (req, res, next) => {
+export async function validateTupad(req, res, next) {
     try {
         const {
             user_id,
@@ -84,7 +84,7 @@ exports.validateTupad = async (req, res, next) => {
         }
 
         // One TUPAD applicant per family: contact number is used as the household key.
-        const [familyRows] = await db.execute(
+        const [familyRows] = await execute(
             `SELECT a.application_id
              FROM beneficiaries b
              INNER JOIN applications a ON a.user_id = b.user_id
@@ -102,7 +102,7 @@ exports.validateTupad = async (req, res, next) => {
         }
 
         // Reapplication cooldown: must wait 6 months from latest TUPAD application.
-        const [latestApplicationRows] = await db.execute(
+        const [latestApplicationRows] = await execute(
             `SELECT applied_at
              FROM applications
              WHERE user_id = ? AND program_type = 'tupad'
@@ -129,4 +129,4 @@ exports.validateTupad = async (req, res, next) => {
             message: error.message || 'Failed to validate TUPAD application'
         });
     }
-};
+}

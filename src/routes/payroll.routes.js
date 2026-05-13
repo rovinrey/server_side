@@ -1,28 +1,50 @@
-const express = require('express');
-const router = express.Router();
-const payrollController = require('../controllers/payroll.controller');
-const authMiddleware = require('../middlewares/auth.middleware');
-const { requireAdmin, requireAdminOrStaff } = require('../validators/common.validators');
+import { Router } from 'express';
+const router = Router();
+import {
+  handleGeneratePayroll,
+  handleGetPayroll,
+  handleApprovePayroll,
+  handleReleasePayroll,
+  handleGetAnalytics,
+  handleCreateDisbursement,
+  handleGetDisbursements,
+  handleUpdateDisbursementStatus,
+  handleGetBeneficiaryPayouts,
+  handleSetDailyWage,
+  handleGetAllDailyWages,
+} from '../controllers/payroll.controller.js';
+
+
+import authMiddleware from '../middlewares/auth.middleware.js';
+import { requireAdmin, requireAdminOrStaff } from '../validators/common.validators.js';
 
 // Payroll management (admin only for generate/approve/release)
-router.post('/generate', authMiddleware, requireAdmin, payrollController.generatePayroll);
-router.get('/', authMiddleware, requireAdminOrStaff, payrollController.getPayroll);
-router.put('/approve', authMiddleware, requireAdmin, payrollController.approvePayroll);
-router.put('/release', authMiddleware, requireAdmin, payrollController.releasePayroll);
+router.post('/generate', authMiddleware, requireAdmin, handleGeneratePayroll);
+router.get('/', authMiddleware, requireAdminOrStaff, handleGetPayroll);
+router.put('/approve', authMiddleware, requireAdmin, handleApprovePayroll);
+router.put('/release', authMiddleware, requireAdmin, handleReleasePayroll);
+
 
 // Analytics (admin/staff)
-router.get('/analytics', authMiddleware, requireAdminOrStaff, payrollController.getAnalytics);
+router.get('/analytics', authMiddleware, requireAdminOrStaff, handleGetAnalytics);
+
 
 // Disbursements (admin only)
-router.post('/disbursements', authMiddleware, requireAdmin, payrollController.createDisbursement);
-router.get('/disbursements', authMiddleware, requireAdminOrStaff, payrollController.getDisbursements);
-router.put('/disbursements/:id/status', authMiddleware, requireAdmin, payrollController.updateDisbursementStatus);
+router.post('/disbursements', authMiddleware, requireAdmin, handleCreateDisbursement);
+
+router.get('/disbursements', authMiddleware, requireAdminOrStaff, handleGetDisbursements);
+
+router.put('/disbursements/:id/status', authMiddleware, requireAdmin, handleUpdateDisbursementStatus);
+
 
 // Beneficiary self-service
-router.get('/my-payouts', authMiddleware, payrollController.getBeneficiaryPayouts);
+router.get('/my-payouts', authMiddleware, handleGetBeneficiaryPayouts);
+
 
 // Daily wage settings
-router.post('/daily-wage', authMiddleware, requireAdmin, payrollController.setDailyWage);
-router.get('/daily-wage', authMiddleware, requireAdminOrStaff, payrollController.getAllDailyWages);
+router.post('/daily-wage', authMiddleware, requireAdmin, handleSetDailyWage);
 
-module.exports = router;
+router.get('/daily-wage', authMiddleware, requireAdminOrStaff, handleGetAllDailyWages);
+
+
+export default router;

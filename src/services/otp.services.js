@@ -1,6 +1,6 @@
-const db = require('../../config');
-const nodemailer = require('nodemailer');
-const crypto = require('crypto');
+import { execute } from '../../config.js';
+import { createTransport } from 'nodemailer';
+import { randomInt, timingSafeEqual } from 'crypto';
 
 /**
  * Production-Ready OTP Service
@@ -18,7 +18,7 @@ const RESEND_COOLDOWN_SECONDS = 60; // 1 minute between resends
  * Initialize Email Service
  * Requires: EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD
  */
-const emailTransporter = nodemailer.createTransport({
+const emailTransporter = createTransport({
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: process.env.EMAIL_PORT || 587,
     secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for 587
@@ -62,7 +62,7 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
  * @returns {string} 6-digit OTP code
  */
 const generateOTP = () => {
-    return crypto.randomInt(0, 999999).toString().padStart(OTP_LENGTH, '0');
+    return randomInt(0, 999999).toString().padStart(OTP_LENGTH, '0');
 };
 
 /**
@@ -237,7 +237,7 @@ const requestOTP = async (identifier, userName = 'User') => {
         }
 
         // Check for existing unverified OTP (cooldown)
-        const [existingOTP] = await db.execute(
+        const [existingOTP] = await execute(
             `SELECT otp_id, created_at FROM otp_verifications 
              WHERE identifier = ? AND is_verified = 0 
              ORDER BY created_at DESC LIMIT 1`,
@@ -259,7 +259,7 @@ const requestOTP = async (identifier, userName = 'User') => {
         }
 
         // Check if identifier already has verified account
-        const [existingUser] = await db.execute(
+        const [existingUser] = await execute(
             'SELECT user_id FROM users WHERE email = ? OR phone = ?',
             [trimmedIdentifier, trimmedIdentifier]
         );
@@ -275,7 +275,7 @@ const requestOTP = async (identifier, userName = 'User') => {
         const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
         // Store OTP in database
-        const [result] = await db.execute(
+        const [result] = await execute(
             `INSERT INTO otp_verifications 
              (identifier, otp_code, otp_type, expires_at, attempts, max_attempts) 
              VALUES (?, ?, ?, ?, 0, ?)`,
@@ -323,7 +323,7 @@ const verifyOTP = async (identifier, otpCode) => {
         }
 
         // Get the unverified OTP
-        const [otpRecords] = await db.execute(
+        const [otpRecords] = await execute(
             `SELECT otp_id, otp_code, attempts, max_attempts, expires_at 
              FROM otp_verifications 
              WHERE identifier = ? AND is_verified = 0 
@@ -357,13 +357,13 @@ const verifyOTP = async (identifier, otpCode) => {
         }
 
         // Increment attempts
-        await db.execute(
+        await execute(
             'UPDATE otp_verifications SET attempts = attempts + 1 WHERE otp_id = ?',
             [otpRecord.otp_id]
         );
 
         // Verify OTP code (constant-time comparison)
-        const isOTPValid = crypto.timingSafeEqual(
+        const isOTPValid = timingSafeEqual(
             Buffer.from(otpRecord.otp_code),
             Buffer.from(trimmedOTP)
         );
@@ -378,7 +378,7 @@ const verifyOTP = async (identifier, otpCode) => {
         }
 
         // Mark OTP as verified
-        await db.execute(
+        await execute(
             'UPDATE otp_verifications SET is_verified = 1, verified_at = NOW() WHERE otp_id = ?',
             [otpRecord.otp_id]
         );
@@ -405,7 +405,7 @@ const resendOTP = async (identifier, userName = 'User') => {
         const trimmedIdentifier = String(identifier).trim();
 
         // Delete old unverified OTP
-        await db.execute(
+        await execute(
             'DELETE FROM otp_verifications WHERE identifier = ? AND is_verified = 0',
             [trimmedIdentifier]
         );
@@ -429,7 +429,7 @@ const storeTempUserData = async (identifier, userData) => {
     try {
         const trimmedIdentifier = String(identifier).trim();
 
-        const [otpRecords] = await db.execute(
+        const [otpRecords] = await execute(
             `SELECT otp_id FROM otp_verifications 
              WHERE identifier = ? AND is_verified = 0 
              ORDER BY created_at DESC LIMIT 1`,
@@ -442,7 +442,7 @@ const storeTempUserData = async (identifier, userData) => {
             throw error;
         }
 
-        await db.execute(
+        await execute(
             'UPDATE otp_verifications SET temp_user_data = ? WHERE otp_id = ?',
             [JSON.stringify(userData), otpRecords[0].otp_id]
         );
@@ -461,7 +461,7 @@ const getTempUserData = async (identifier) => {
     try {
         const trimmedIdentifier = String(identifier).trim();
 
-        const [otpRecords] = await db.execute(
+        const [otpRecords] = await execute(
             `SELECT temp_user_data FROM otp_verifications 
              WHERE identifier = ? AND is_verified = 1 
              ORDER BY verified_at DESC LIMIT 1`,
@@ -485,7 +485,7 @@ const getTempUserData = async (identifier) => {
  */
 const cleanupExpiredOTPs = async () => {
     try {
-        const [result] = await db.execute(
+        const [result] = await execute(
             `DELETE FROM otp_verifications 
              WHERE expires_at < NOW() AND is_verified = 0`
         );
@@ -498,7 +498,7 @@ const cleanupExpiredOTPs = async () => {
 // Run cleanup every hour
 setInterval(cleanupExpiredOTPs, 60 * 60 * 1000);
 
-module.exports = {
+export default {
     requestOTP,
     verifyOTP,
     resendOTP,

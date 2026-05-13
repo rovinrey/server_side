@@ -1,5 +1,5 @@
-const bcrypt = require('bcryptjs');
-const mysql = require('mysql2/promise');
+import { hash } from 'bcryptjs';
+import { createConnection } from 'mysql2/promise';
 require('dotenv').config();
 
 async function seedAdmin() {
@@ -15,7 +15,7 @@ async function seedAdmin() {
             port: process.env.DB_PORT || 3306
         };
 
-        connection = await mysql.createConnection(config);
+        connection = await createConnection(config);
         console.log('Connected to database...');
 
         const adminEmail = process.env.ADMIN_EMAIL;
@@ -38,7 +38,7 @@ async function seedAdmin() {
         }
 
         // 2. Hash and Insert (Including user_name)
-        const hashedPassword = await bcrypt.hash(adminPassword, 12);
+        const hashedPassword = await hash(adminPassword, 12);
 
         // Use query() instead of execute() to avoid prepared-statement truncation
         // of $-prefixed bcrypt hash strings in mysql2

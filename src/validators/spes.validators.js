@@ -1,4 +1,4 @@
-exports.validatedSpes = (req, res, next) => {
+export function validatedSpes(req, res, next) {
     const { 
         date_of_birth, 
         sex, 
@@ -10,16 +10,19 @@ exports.validatedSpes = (req, res, next) => {
     } = req.body;
 
     // 1. Basic Presence Checks
+    // NOTE: Beneficiary may apply even if Tech-Voc education details are not filled.
+    // So we do not require education_tech_voc fields here.
     const requiredFields = [
-        'place_of_birth', 'citizenship', 'sex', 
+        'place_of_birth', 'citizenship', 'sex',
         'type_of_student', 'parent_status', 'education_level'
     ];
-    
+
     for (const field of requiredFields) {
-        if (!req.body[field]) {
+        if (req.body[field] === undefined || req.body[field] === null || String(req.body[field]).trim() === '') {
             return res.status(400).json({ message: `${field.replace(/_/g, ' ')} is required` });
         }
     }
+
 
     // 2. Enum Validation
     if (!['Male', 'Female'].includes(sex)) {
@@ -69,4 +72,4 @@ exports.validatedSpes = (req, res, next) => {
 
 
     next();
-};
+}

@@ -1,11 +1,11 @@
-const db = require('../../config');
-const fs = require('fs');
+import { query as _query } from '../../config.js';
+import { existsSync, unlinkSync } from 'fs';
 
 /**
  * Get all submitted documents across all users, grouped with user info.
  * Supports optional filters: programType, userId
  */
-exports.getAllDocuments = async ({ programType, userId } = {}) => {
+export async function getAllDocuments({ programType, userId } = {}) {
     let query = `
         SELECT 
             bd.document_id,
@@ -50,25 +50,25 @@ exports.getAllDocuments = async ({ programType, userId } = {}) => {
 
     query += ' ORDER BY bd.uploaded_at DESC';
 
-    const [rows] = await db.query(query, params);
+    const [rows] = await _query(query, params);
     return rows;
-};
+}
 
 /**
  * Get a single document by ID (for admin - no user_id restriction).
  */
-exports.getDocumentById = async (documentId) => {
-    const [rows] = await db.query(
+export async function getDocumentById(documentId) {
+    const [rows] = await _query(
         'SELECT * FROM beneficiary_documents WHERE document_id = ?',
         [documentId]
     );
     return rows.length > 0 ? rows[0] : null;
-};
+}
 
 /**
  * Get all SPES application documents across all users.
  */
-exports.getAllSpesDocuments = async ({ userId } = {}) => {
+export async function getAllSpesDocuments({ userId } = {}) {
     let query = `
         SELECT 
             sa.spes_application_id,
@@ -103,15 +103,15 @@ exports.getAllSpesDocuments = async ({ userId } = {}) => {
 
     query += ' ORDER BY sa.updated_at DESC';
 
-    const [rows] = await db.query(query, params);
+    const [rows] = await _query(query, params);
     return rows;
-};
+}
 
 /**
  * Get documents for a specific user across all programs (for Word export).
  */
-exports.getUserDocumentsForExport = async (userId) => {
-    const [docs] = await db.query(
+export async function getUserDocumentsForExport(userId) {
+    const [docs] = await _query(
         `SELECT bd.*, u.email, u.phone, b.first_name, b.last_name, b.address
          FROM beneficiary_documents bd
          JOIN users u ON bd.user_id = u.user_id
@@ -121,34 +121,34 @@ exports.getUserDocumentsForExport = async (userId) => {
         [userId]
     );
     return docs;
-};
+}
 
 /**
  * Delete a generic beneficiary document by ID.
  * Removes from DB and deletes file from disk.
  */
-exports.deleteDocument = async (documentId) => {
-    const [rows] = await db.query(
+export async function deleteDocument(documentId) {
+    const [rows] = await _query(
         'SELECT * FROM beneficiary_documents WHERE document_id = ?',
         [documentId]
     );
     if (rows.length === 0) return null;
 
     const doc = rows[0];
-    if (doc.file_path && fs.existsSync(doc.file_path)) {
-        fs.unlinkSync(doc.file_path);
+    if (doc.file_path && existsSync(doc.file_path)) {
+        unlinkSync(doc.file_path);
     }
 
-    await db.query('DELETE FROM beneficiary_documents WHERE document_id = ?', [documentId]);
+    await _query('DELETE FROM beneficiary_documents WHERE document_id = ?', [documentId]);
     return doc;
-};
+}
 
 /**
  * Replace a generic beneficiary document file.
  * Deletes old file, updates DB row with new file info.
  */
-exports.replaceDocument = async (documentId, newFile) => {
-    const [rows] = await db.query(
+export async function replaceDocument(documentId, newFile) {
+    const [rows] = await _query(
         'SELECT * FROM beneficiary_documents WHERE document_id = ?',
         [documentId]
     );
@@ -157,24 +157,24 @@ exports.replaceDocument = async (documentId, newFile) => {
     const doc = rows[0];
 
     // Delete old file
-    if (doc.file_path && fs.existsSync(doc.file_path)) {
-        fs.unlinkSync(doc.file_path);
+    if (doc.file_path && existsSync(doc.file_path)) {
+        unlinkSync(doc.file_path);
     }
 
     // Update DB with new file info
-    await db.query(
+    await _query(
         `UPDATE beneficiary_documents
          SET file_path = ?, original_name = ?, file_size = ?, mime_type = ?, uploaded_at = NOW()
          WHERE document_id = ?`,
         [newFile.path, newFile.originalname, newFile.size, newFile.mimetype, documentId]
     );
 
-    const [updated] = await db.query(
+    const [updated] = await _query(
         'SELECT * FROM beneficiary_documents WHERE document_id = ?',
         [documentId]
     );
     return updated[0];
-};
+}
 
 /**
  * SPES field-to-column mapping (same as beneficiary-facing).
@@ -194,52 +194,52 @@ const SPES_FIELD_MAP = {
 /**
  * Get a SPES document file path by application ID and field ID.
  */
-exports.getSpesDocumentPath = async (applicationId, fieldId) => {
+export async function getSpesDocumentPath(applicationId, fieldId) {
     const column = SPES_FIELD_MAP[fieldId];
     if (!column) return null;
 
-    const [rows] = await db.query(
+    const [rows] = await _query(
         `SELECT ${column} AS file_path FROM SPES_Applications WHERE spes_application_id = ?`,
         [applicationId]
     );
     if (rows.length === 0 || !rows[0].file_path) return null;
     return rows[0].file_path;
-};
+}
 
 /**
  * Delete a SPES document by application ID and field ID.
  * Sets column to NULL and removes file from disk.
  */
-exports.deleteSpesDocument = async (applicationId, fieldId) => {
+export async function deleteSpesDocument(applicationId, fieldId) {
     const column = SPES_FIELD_MAP[fieldId];
     if (!column) return null;
 
-    const [rows] = await db.query(
+    const [rows] = await _query(
         `SELECT ${column} AS file_path FROM SPES_Applications WHERE spes_application_id = ?`,
         [applicationId]
     );
     if (rows.length === 0) return null;
 
     const filePath = rows[0].file_path;
-    if (filePath && fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+    if (filePath && existsSync(filePath)) {
+        unlinkSync(filePath);
     }
 
-    await db.query(
+    await _query(
         `UPDATE SPES_Applications SET ${column} = NULL WHERE spes_application_id = ?`,
         [applicationId]
     );
     return { applicationId, fieldId, deleted: true };
-};
+}
 
 /**
  * Replace a SPES document file.
  */
-exports.replaceSpesDocument = async (applicationId, fieldId, newFile) => {
+export async function replaceSpesDocument(applicationId, fieldId, newFile) {
     const column = SPES_FIELD_MAP[fieldId];
     if (!column) return null;
 
-    const [rows] = await db.query(
+    const [rows] = await _query(
         `SELECT ${column} AS file_path FROM SPES_Applications WHERE spes_application_id = ?`,
         [applicationId]
     );
@@ -247,25 +247,25 @@ exports.replaceSpesDocument = async (applicationId, fieldId, newFile) => {
 
     // Delete old file
     const oldPath = rows[0].file_path;
-    if (oldPath && fs.existsSync(oldPath)) {
-        fs.unlinkSync(oldPath);
+    if (oldPath && existsSync(oldPath)) {
+        unlinkSync(oldPath);
     }
 
     // Update DB
-    await db.query(
+    await _query(
         `UPDATE SPES_Applications SET ${column} = ? WHERE spes_application_id = ?`,
         [newFile.path, applicationId]
     );
 
     return { applicationId, fieldId, file_path: newFile.path };
-};
+}
 
 /**
  * Get all documents for an application by application_id
  * Joins with applications table to find user_id from application
  */
-exports.getApplicationDocuments = async (applicationId) => {
-    const [rows] = await db.query(`
+export async function getApplicationDocuments(applicationId) {
+    const [rows] = await _query(`
         SELECT 
             bd.document_id,
             bd.user_id,
@@ -289,15 +289,15 @@ exports.getApplicationDocuments = async (applicationId) => {
     `, [applicationId]);
     
     return rows;
-};
+}
 
 /**
  * Verify a document by document ID
  */
-exports.verifyDocument = async (documentId, adminId) => {
+export async function verifyDocument(documentId, adminId) {
     const verifiedAt = new Date();
     
-    const [result] = await db.query(
+    const [result] = await _query(
         `UPDATE beneficiary_documents 
          SET status = 'verified', verified_by = ?, verified_at = ?
          WHERE document_id = ?`,
@@ -309,7 +309,7 @@ exports.verifyDocument = async (documentId, adminId) => {
     }
 
     // Fetch and return the updated document
-    const [rows] = await db.query(
+    const [rows] = await _query(
         `SELECT bd.*, u.user_name AS verified_by_name
          FROM beneficiary_documents bd
          LEFT JOIN users u ON bd.verified_by = u.user_id
@@ -318,13 +318,13 @@ exports.verifyDocument = async (documentId, adminId) => {
     );
 
     return rows[0] || null;
-};
+}
 
 /**
  * Reject/unverify a document by document ID
  */
-exports.rejectDocument = async (documentId) => {
-    const [result] = await db.query(
+export async function rejectDocument(documentId) {
+    const [result] = await _query(
         `UPDATE beneficiary_documents 
          SET status = 'rejected', verified_by = NULL, verified_at = NULL
          WHERE document_id = ?`,
@@ -336,7 +336,7 @@ exports.rejectDocument = async (documentId) => {
     }
 
     // Fetch and return the updated document
-    const [rows] = await db.query(
+    const [rows] = await _query(
         `SELECT bd.*, u.user_name AS verified_by_name
          FROM beneficiary_documents bd
          LEFT JOIN users u ON bd.verified_by = u.user_id
@@ -345,4 +345,4 @@ exports.rejectDocument = async (documentId) => {
     );
 
     return rows[0] || null;
-};
+}

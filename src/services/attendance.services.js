@@ -1,4 +1,4 @@
-const db = require('../../config');
+import { execute } from '../../config.js';
 
 let tableEnsured = false;
 
@@ -24,11 +24,11 @@ const ensureAttendanceTable = async () => {
     )
   `;
 
-  await db.execute(createTableQuery);
+  await execute(createTableQuery);
 
   // Ensure 'Absent' value exists in the ENUM for existing tables
   try {
-    await db.execute(`ALTER TABLE attendance_records MODIFY COLUMN status ENUM('Present', 'Incomplete', 'Absent') DEFAULT 'Incomplete'`);
+    await execute(`ALTER TABLE attendance_records MODIFY COLUMN status ENUM('Present', 'Incomplete', 'Absent') DEFAULT 'Incomplete'`);
   } catch (_) {
     // ignore if already correct
   }
@@ -45,11 +45,11 @@ const getLatestProgram = async (userId) => {
     LIMIT 1
   `;
 
-  const [rows] = await db.execute(query, [userId]);
+  const [rows] = await execute(query, [userId]);
   return rows[0] || null;
 };
 
-exports.getAttendanceRecords = async (userId) => {
+export async function getAttendanceRecords(userId) {
   await ensureAttendanceTable();
 
   const query = `
@@ -67,11 +67,11 @@ exports.getAttendanceRecords = async (userId) => {
     LIMIT 30
   `;
 
-  const [rows] = await db.execute(query, [userId]);
+  const [rows] = await execute(query, [userId]);
   return rows;
-};
+}
 
-exports.getTodayAttendance = async (userId) => {
+export async function getTodayAttendance(userId) {
   await ensureAttendanceTable();
 
   const latestProgram = await getLatestProgram(userId);
@@ -83,20 +83,20 @@ exports.getTodayAttendance = async (userId) => {
     LIMIT 1
   `;
 
-  const [rows] = await db.execute(query, [userId]);
+  const [rows] = await execute(query, [userId]);
   return {
     attendance: rows[0] || null,
     programType: latestProgram ? latestProgram.program_type : null
   };
-};
+}
 
-exports.timeIn = async (userId) => {
+export async function timeIn(userId) {
   await ensureAttendanceTable();
 
   const latestProgram = await getLatestProgram(userId);
   const programType = latestProgram ? latestProgram.program_type : null;
 
-  const [existingRows] = await db.execute(
+  const [existingRows] = await execute(
     'SELECT attendance_id, time_in, time_out FROM attendance_records WHERE user_id = ? AND attendance_date = CURDATE() LIMIT 1',
     [userId]
   );
@@ -113,7 +113,7 @@ exports.timeIn = async (userId) => {
       VALUES (?, ?, CURDATE(), NOW(), 'Incomplete', 'Timed in')
     `;
 
-    await db.execute(insertQuery, [userId, programType]);
+    await execute(insertQuery, [userId, programType]);
   } else {
     const updateQuery = `
       UPDATE attendance_records
@@ -121,19 +121,19 @@ exports.timeIn = async (userId) => {
       WHERE attendance_id = ?
     `;
 
-    await db.execute(updateQuery, [programType, existingRows[0].attendance_id]);
+    await execute(updateQuery, [programType, existingRows[0].attendance_id]);
   }
 
-  return await exports.getTodayAttendance(userId);
-};
+  return await getTodayAttendance(userId);
+}
 
-exports.timeOut = async (userId) => {
+export async function timeOut(userId) {
   await ensureAttendanceTable();
 
   const latestProgram = await getLatestProgram(userId);
   const programType = latestProgram ? latestProgram.program_type : null;
 
-  const [rows] = await db.execute(
+  const [rows] = await execute(
     'SELECT attendance_id, time_in, time_out FROM attendance_records WHERE user_id = ? AND attendance_date = CURDATE() LIMIT 1',
     [userId]
   );
@@ -156,12 +156,12 @@ exports.timeOut = async (userId) => {
     WHERE attendance_id = ?
   `;
 
-  await db.execute(query, [programType, rows[0].attendance_id]);
+  await execute(query, [programType, rows[0].attendance_id]);
 
-  return await exports.getTodayAttendance(userId);
-};
+  return await getTodayAttendance(userId);
+}
 
-exports.getMonitoringRecords = async (limit = 200) => {
+export async function getMonitoringRecords(limit = 200) {
   await ensureAttendanceTable();
 
   const safeLimit = Number(limit) > 0 ? Number(limit) : 200;
@@ -186,12 +186,12 @@ exports.getMonitoringRecords = async (limit = 200) => {
     LIMIT ?
   `;
 
-  const [rows] = await db.execute(query, [safeLimit]);
+  const [rows] = await execute(query, [safeLimit]);
   return rows;
-};
+}
 
 // Get beneficiaries for a program with their today's attendance status
-exports.getProgramAttendance = async (programType, date) => {
+export async function getProgramAttendance(programType, date) {
   await ensureAttendanceTable();
   const attendanceDate = date || new Date().toISOString().slice(0, 10);
 
@@ -218,29 +218,29 @@ exports.getProgramAttendance = async (programType, date) => {
     ORDER BY beneficiary_name ASC
   `;
 
-  const [rows] = await db.execute(query, [attendanceDate, programType]);
+  const [rows] = await execute(query, [attendanceDate, programType]);
   return rows;
-};
+}
 
 // Admin marks a beneficiary as present or absent for a given date
-exports.adminMarkAttendance = async (userId, programType, date, status) => {
+export async function adminMarkAttendance(userId, programType, date, status) {
   await ensureAttendanceTable();
   const attendanceDate = date || new Date().toISOString().slice(0, 10);
 
-  const [existing] = await db.execute(
+  const [existing] = await execute(
     'SELECT attendance_id FROM attendance_records WHERE user_id = ? AND attendance_date = ? LIMIT 1',
     [userId, attendanceDate]
   );
 
   if (existing.length > 0) {
-    await db.execute(
+    await execute(
       `UPDATE attendance_records SET status = ?, program_type = ?, remarks = ?, time_in = COALESCE(time_in, NOW()), time_out = CASE WHEN ? = 'Present' THEN COALESCE(time_out, NOW()) ELSE time_out END WHERE attendance_id = ?`,
       [status, programType, `Marked ${status} by admin`, status, existing[0].attendance_id]
     );
   } else {
     const timeIn = status === 'Present' ? 'NOW()' : 'NULL';
     const timeOut = status === 'Present' ? 'NOW()' : 'NULL';
-    await db.execute(
+    await execute(
       `INSERT INTO attendance_records (user_id, program_type, attendance_date, time_in, time_out, status, remarks)
        VALUES (?, ?, ?, ${timeIn}, ${timeOut}, ?, ?)`,
       [userId, programType, attendanceDate, status, `Marked ${status} by admin`]
@@ -248,4 +248,4 @@ exports.adminMarkAttendance = async (userId, programType, date, status) => {
   }
 
   return { userId, date: attendanceDate, status };
-};
+}

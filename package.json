@@ -2,7 +2,7 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "TUPAD and Pangkabuhayan Management System Backend",
-  "type": "commonjs",
+  "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

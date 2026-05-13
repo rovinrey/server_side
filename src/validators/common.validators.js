@@ -1,33 +1,32 @@
 /**
  * Common validation helpers shared across all validators.
- * Keeps per-program validators lean and DRY.
  */
 
-const VALID_PROGRAMS = ['tupad', 'spes', 'dilp', 'gip', 'job_seekers'];
-const VALID_GENDERS = ['Male', 'Female', 'Other'];
-const VALID_CIVIL_STATUSES = ['Single', 'Married', 'Widowed', 'Divorced', 'Separated'];
-const VALID_APPLICATION_STATUSES = ['Pending', 'Approved', 'Rejected'];
+export const VALID_PROGRAMS = ['tupad', 'spes', 'dilp', 'gip', 'job_seekers'];
+export const VALID_GENDERS = ['Male', 'Female', 'Other'];
+export const VALID_CIVIL_STATUSES = ['Single', 'Married', 'Widowed', 'Divorced', 'Separated'];
+export const VALID_APPLICATION_STATUSES = ['Pending', 'Approved', 'Rejected'];
 
-const PHONE_REGEX = /^\+?[\d\s()-]{7,20}$/;
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const PHONE_REGEX = /^\+?[\d\s()-]{7,20}$/;
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Trim a value safely, returning null for falsy inputs */
-const safeTrim = (val) => (val != null ? String(val).trim() : null);
+export const safeTrim = (val) => (val != null ? String(val).trim() : null);
 
 /** Parse integer safely, NaN → null */
-const safeInt = (val) => {
+export const safeInt = (val) => {
     const n = parseInt(val, 10);
     return Number.isNaN(n) ? null : n;
 };
 
 /** Parse float safely, NaN → null */
-const safeFloat = (val) => {
+export const safeFloat = (val) => {
     const n = parseFloat(val);
     return Number.isNaN(n) ? null : n;
 };
 
 /** Calculate age from a birth date string */
-const calculateAge = (birthDateValue) => {
+export const calculateAge = (birthDateValue) => {
     const birthDate = new Date(birthDateValue);
     if (Number.isNaN(birthDate.getTime())) return null;
 
@@ -40,7 +39,7 @@ const calculateAge = (birthDateValue) => {
 };
 
 /** Validate that a date string is valid and not in the future */
-const isValidPastDate = (dateStr) => {
+export const isValidPastDate = (dateStr) => {
     if (!dateStr) return false;
     const d = new Date(dateStr);
     if (Number.isNaN(d.getTime())) return false;
@@ -48,7 +47,7 @@ const isValidPastDate = (dateStr) => {
 };
 
 /** Validate contact number format */
-const isValidPhone = (phone) => {
+export const isValidPhone = (phone) => {
     if (!phone) return false;
     const trimmed = String(phone).trim();
     const digitsOnly = trimmed.replace(/\D/g, '');
@@ -56,25 +55,21 @@ const isValidPhone = (phone) => {
 };
 
 /** Validate email format */
-const isValidEmail = (email) => {
+export const isValidEmail = (email) => {
     if (!email) return false;
     return EMAIL_REGEX.test(String(email).trim());
 };
 
-/**
- * Middleware: require admin role
- */
-const requireAdmin = (req, res, next) => {
+/** Middleware: require admin role */
+export const requireAdmin = (req, res, next) => {
     if (req.user?.role !== 'admin') {
         return res.status(403).json({ message: 'Admin access required' });
     }
     next();
 };
 
-/**
- * Middleware: require admin or staff role
- */
-const requireAdminOrStaff = (req, res, next) => {
+/** Middleware: require admin or staff role */
+export const requireAdminOrStaff = (req, res, next) => {
     const role = req.user?.role;
     if (role !== 'admin' && role !== 'staff') {
         return res.status(403).json({ message: 'Admin or staff access required' });
@@ -82,10 +77,8 @@ const requireAdminOrStaff = (req, res, next) => {
     next();
 };
 
-/**
- * Middleware: validate numeric param is a positive integer
- */
-const validateIdParam = (paramName) => (req, res, next) => {
+/** Middleware: validate numeric param is a positive integer */
+export const validateIdParam = (paramName) => (req, res, next) => {
     const val = safeInt(req.params[paramName]);
     if (!val || val < 1) {
         return res.status(400).json({ message: `${paramName} must be a positive integer` });
@@ -93,7 +86,10 @@ const validateIdParam = (paramName) => (req, res, next) => {
     next();
 };
 
-module.exports = {
+// NOTE:
+// Some modules import this file using `import common from './common.validators.js';`
+// so we provide a default export containing the named helpers.
+const common = {
     VALID_PROGRAMS,
     VALID_GENDERS,
     VALID_CIVIL_STATUSES,
@@ -111,3 +107,6 @@ module.exports = {
     requireAdminOrStaff,
     validateIdParam,
 };
+
+export default common;
+

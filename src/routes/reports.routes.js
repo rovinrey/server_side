@@ -1,37 +1,61 @@
 
-const express = require('express');
-const router = express.Router();
-const reportsController = require('../controllers/reports.controller');
-const authMiddleware = require('../middlewares/auth.middleware');
-const { requireAdminOrStaff } = require('../validators/common.validators');
+import { Router } from 'express';
+const router = Router();
+import {
+  handleGetSummaryReport as getSummaryReport,
+  handleGetProgramAccomplishment as getProgramAccomplishment,
+  handleGetBeneficiaryMasterList as getBeneficiaryMasterList,
+  handleGetPayrollSummary as getPayrollSummary,
+  handleGetAttendanceSummary as getAttendanceSummary,
+  handleGetDilpMonitoringReport as getDilpMonitoringReport,
+  handleGetEmploymentFacilitationReport as getEmploymentFacilitationReport,
+  handleGetSpesReport as getSpesReport,
+  handleGetGipReport as getGipReport,
+  handleGetConsolidatedReport as getConsolidatedReport,
+  handleGetBarangayBeneficiaries as getBarangayBeneficiaries,
+  handleGetBarangayList as getBarangayList,
+
+  exportProgramAccomplishment,
+  exportBeneficiaryMasterList,
+  exportPayrollSummary,
+  exportAttendanceSummary,
+  exportDilpMonitoring,
+  exportEmploymentFacilitation,
+  exportSpesReport,
+  exportGipReport,
+  exportConsolidatedReport,
+} from '../controllers/reports.controller.js';
+
+import authMiddleware from '../middlewares/auth.middleware.js';
+import { requireAdminOrStaff } from '../validators/common.validators.js';
 
 // ── JSON endpoints (for frontend display) ──────────
 
 // ── NEW: Analytics Summary Report ─────────────────────
-router.get('/summary', authMiddleware, requireAdminOrStaff, reportsController.getSummaryReport);
+router.get('/summary', authMiddleware, requireAdminOrStaff, getSummaryReport);
 
-router.get('/program-accomplishment', authMiddleware, requireAdminOrStaff, reportsController.getProgramAccomplishment);
-router.get('/beneficiary-master-list', authMiddleware, requireAdminOrStaff, reportsController.getBeneficiaryMasterList);
-router.get('/payroll-summary', authMiddleware, requireAdminOrStaff, reportsController.getPayrollSummary);
-router.get('/attendance-summary', authMiddleware, requireAdminOrStaff, reportsController.getAttendanceSummary);
-router.get('/dilp-monitoring', authMiddleware, requireAdminOrStaff, reportsController.getDilpMonitoringReport);
-router.get('/employment-facilitation', authMiddleware, requireAdminOrStaff, reportsController.getEmploymentFacilitationReport);
-router.get('/spes', authMiddleware, requireAdminOrStaff, reportsController.getSpesReport);
-router.get('/gip', authMiddleware, requireAdminOrStaff, reportsController.getGipReport);
-router.get('/consolidated', authMiddleware, requireAdminOrStaff, reportsController.getConsolidatedReport);
-router.get('/barangay-beneficiaries', authMiddleware, requireAdminOrStaff, reportsController.getBarangayBeneficiaries);
-router.get('/barangay-list', authMiddleware, requireAdminOrStaff, reportsController.getBarangayList);
+router.get('/program-accomplishment', authMiddleware, requireAdminOrStaff, getProgramAccomplishment);
+router.get('/beneficiary-master-list', authMiddleware, requireAdminOrStaff, getBeneficiaryMasterList);
+router.get('/payroll-summary', authMiddleware, requireAdminOrStaff, getPayrollSummary);
+router.get('/attendance-summary', authMiddleware, requireAdminOrStaff, getAttendanceSummary);
+router.get('/dilp-monitoring', authMiddleware, requireAdminOrStaff, getDilpMonitoringReport);
+router.get('/employment-facilitation', authMiddleware, requireAdminOrStaff, getEmploymentFacilitationReport);
+router.get('/spes', authMiddleware, requireAdminOrStaff, getSpesReport);
+router.get('/gip', authMiddleware, requireAdminOrStaff, getGipReport);
+router.get('/consolidated', authMiddleware, requireAdminOrStaff, getConsolidatedReport);
+router.get('/barangay-beneficiaries', authMiddleware, requireAdminOrStaff, getBarangayBeneficiaries);
+router.get('/barangay-list', authMiddleware, requireAdminOrStaff, getBarangayList);
 
 // ── Excel export endpoints ─────────────────────────
 
-router.get('/export/program-accomplishment', authMiddleware, requireAdminOrStaff, reportsController.exportProgramAccomplishment);
-router.get('/export/beneficiary-master-list', authMiddleware, requireAdminOrStaff, reportsController.exportBeneficiaryMasterList);
-router.get('/export/payroll-summary', authMiddleware, requireAdminOrStaff, reportsController.exportPayrollSummary);
-router.get('/export/attendance-summary', authMiddleware, requireAdminOrStaff, reportsController.exportAttendanceSummary);
-router.get('/export/dilp-monitoring', authMiddleware, requireAdminOrStaff, reportsController.exportDilpMonitoring);
-router.get('/export/employment-facilitation', authMiddleware, requireAdminOrStaff, reportsController.exportEmploymentFacilitation);
-router.get('/export/spes', authMiddleware, requireAdminOrStaff, reportsController.exportSpesReport);
-router.get('/export/gip', authMiddleware, requireAdminOrStaff, reportsController.exportGipReport);
-router.get('/export/consolidated', authMiddleware, requireAdminOrStaff, reportsController.exportConsolidatedReport);
+router.get('/export/program-accomplishment', authMiddleware, requireAdminOrStaff, exportProgramAccomplishment);
+router.get('/export/beneficiary-master-list', authMiddleware, requireAdminOrStaff, exportBeneficiaryMasterList);
+router.get('/export/payroll-summary', authMiddleware, requireAdminOrStaff, exportPayrollSummary);
+router.get('/export/attendance-summary', authMiddleware, requireAdminOrStaff, exportAttendanceSummary);
+router.get('/export/dilp-monitoring', authMiddleware, requireAdminOrStaff, exportDilpMonitoring);
+router.get('/export/employment-facilitation', authMiddleware, requireAdminOrStaff, exportEmploymentFacilitation);
+router.get('/export/spes', authMiddleware, requireAdminOrStaff, exportSpesReport);
+router.get('/export/gip', authMiddleware, requireAdminOrStaff, exportGipReport);
+router.get('/export/consolidated', authMiddleware, requireAdminOrStaff, exportConsolidatedReport);
 
-module.exports = router;
+export default router;

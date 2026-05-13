@@ -1,16 +1,17 @@
 // models/tupadModel.js
-const db = require('../../config');
+import db from '../../config.js';
+const { query } = db;
 
-exports.createApplication = async (connection, userId) => {
+export async function createApplication(connection, userId) {
     const [result] = await connection.query(
         `INSERT INTO applications (user_id, program_type)
          VALUES (?, 'tupad')`,
         [userId]
     );
     return result.insertId;
-};
+}
 
-exports.createTupadDetails = async (connection, data) => {
+export async function createTupadDetails(connection, data) {
     await connection.query(
         `INSERT INTO tupad_details 
         (application_id, valid_id_type, id_number, occupation, monthly_income, civil_status, work_category, job_preference, educational_attainment)
@@ -27,11 +28,11 @@ exports.createTupadDetails = async (connection, data) => {
             data.educational_attainment || null
         ]
     );
-};
+}
 
 // insert into beneficiary
 
-exports.createBeneficiary = async (connection, data) => {
+export async function createBeneficiary(connection, data) {
     await connection.query(
         `INSERT INTO beneficiaries 
         (user_id, first_name, middle_name, last_name, birth_date, gender, contact_number, address)
@@ -47,13 +48,13 @@ exports.createBeneficiary = async (connection, data) => {
             data.address
         ]
     );
-};
+}
 
-exports.hasPendingOrApprovedApplication = async (userId) => {
-    const [rows] = await db.query(
+export async function hasPendingOrApprovedApplication(userId) {
+    const [rows] = await query(
         `SELECT application_id FROM applications
          WHERE user_id = ? AND program_type = 'tupad' AND status IN ('Pending', 'Approved')`,
         [userId]
     );
     return rows.length > 0;
-};
+}

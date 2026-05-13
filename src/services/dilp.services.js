@@ -1,7 +1,7 @@
-const db = require("../../config");
+import { execute, getConnection } from "../../config.js";
 
 // Apply to DILP program
-exports.applyDilp = async (data) => {
+export async function applyDilp(data) {
     const query = `
         INSERT INTO dilp_applications (
             proponent_name, sex, civil_status, date_of_birth,
@@ -37,16 +37,16 @@ exports.applyDilp = async (data) => {
     ];
 
     try {
-        const result = await db.execute(query, values);
+        const result = await execute(query, values);
         return result;
     } catch (err) {
         console.error("Database Error:", err.message);
         throw new Error("Failed to save DILP application.");
     }
-};
+}
 
 // Get all DILP applications
-exports.getDilpApplications = async (limit = 10) => {
+export async function getDilpApplications(limit = 10) {
     const query = `
         SELECT id, proponent_name, project_title, project_type, category,
                proposed_amount, location, mobile_number, status, created_at
@@ -55,30 +55,30 @@ exports.getDilpApplications = async (limit = 10) => {
         LIMIT ?
     `;
     try {
-        const result = await db.execute(query, [limit]);
+        const result = await execute(query, [limit]);
         return result;
     } catch (err) {
         console.error("Database Error:", err.message);
         throw new Error("Failed to fetch DILP applications.");
     }
-};
+}
 
 // Get DILP application by ID
-exports.getDilpApplicationById = async (id) => {
+export async function getDilpApplicationById(id) {
     const query = `
         SELECT * FROM dilp_applications WHERE id = ?
     `;
     try {
-        const result = await db.execute(query, [id]);
+        const result = await execute(query, [id]);
         return result;
     } catch (err) {
         console.error("Database Error:", err.message);
         throw new Error("Failed to fetch DILP application.");
     }
-};
+}
 
 // Update DILP application status
-exports.updateDilpStatus = async (id, status) => {
+export async function updateDilpStatus(id, status) {
     const query = `
         UPDATE dilp_applications 
         SET status = ?, approval_date = ?
@@ -87,16 +87,16 @@ exports.updateDilpStatus = async (id, status) => {
     const timestamp = status === "Approved" ? new Date().toISOString() : null;
 
     try {
-        const result = await db.execute(query, [status, timestamp, id]);
+        const result = await execute(query, [status, timestamp, id]);
         return result;
     } catch (err) {
         console.error("Database Error:", err.message);
         throw new Error("Failed to update DILP application status.");
     }
-};
+}
 
 // Get DILP applications by status
-exports.getDilpApplicationsByStatus = async (status, limit = 10) => {
+export async function getDilpApplicationsByStatus(status, limit = 10) {
     const query = `
         SELECT id, proponent_name, project_title, project_type, category,
                proposed_amount, location, contact_number, status
@@ -106,23 +106,23 @@ exports.getDilpApplicationsByStatus = async (status, limit = 10) => {
         LIMIT ?
     `;
     try {
-        const result = await db.execute(query, [status, limit]);
+        const result = await execute(query, [status, limit]);
         return result;
     } catch (err) {
         console.error("Database Error:", err.message);
         throw new Error("Failed to fetch DILP applications by status.");
     }
-};
+}
 
 /**
  * Apply to DILP using the central applications table + dilp_details.
  * This follows the same pattern as TUPAD/SPES.
  */
-exports.applyToDilp = async (data) => {
+export async function applyToDilp(data) {
     const userId = data.user_id;
     if (!userId) throw new Error('User ID is required for DILP application');
 
-    const connection = await db.getConnection();
+    const connection = await getConnection();
 
     try {
         await connection.beginTransaction();
@@ -202,4 +202,4 @@ exports.applyToDilp = async (data) => {
     } finally {
         connection.release();
     }
-};
+}

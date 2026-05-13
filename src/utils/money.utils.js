@@ -14,6 +14,7 @@
  * @throws {Error} If the value is missing, negative, or not parseable.
  */
 function parseMoneyToMinorUnits(amount) {
+
     if (amount === null || amount === undefined || amount === '') {
         throw new Error('Amount is required');
     }
@@ -95,7 +96,8 @@ function normalizeMoneyString(amount) {
     return minorUnitsToDecimalString(parseMoneyToMinorUnits(amount));
 }
 
-module.exports = {
+export { 
+
     parseMoneyToMinorUnits,
     minorUnitsToDecimalString,
     calculateLinePayout,

@@ -1,7 +1,7 @@
-const express = require('express');
-const router = express.Router();
-const rateLimit = require('express-rate-limit');
-const otpController = require('../controllers/otp.controller');
+import { Router } from 'express';
+const router = Router();
+import rateLimit from 'express-rate-limit';
+import { requestOTP, verifyOTP, resendOTP } from '../controllers/otp.controller.js';
 
 /**
  * OTP Routes
@@ -43,7 +43,7 @@ const verifyLimiter = rateLimit({
  *   "identifier": "us***@example.com"
  * }
  */
-router.post('/request', otpLimiter, otpController.requestOTP);
+router.post('/request', otpLimiter, requestOTP);
 
 /**
  * POST /api/auth/otp/verify
@@ -62,7 +62,7 @@ router.post('/request', otpLimiter, otpController.requestOTP);
  *   "verified": true
  * }
  */
-router.post('/verify', verifyLimiter, otpController.verifyOTP);
+router.post('/verify', verifyLimiter, verifyOTP);
 
 /**
  * POST /api/auth/otp/resend
@@ -81,6 +81,6 @@ router.post('/verify', verifyLimiter, otpController.verifyOTP);
  *   "identifier": "us***@example.com"
  * }
  */
-router.post('/resend', otpLimiter, otpController.resendOTP);
+router.post('/resend', otpLimiter, resendOTP);
 
-module.exports = router;
+export default router;

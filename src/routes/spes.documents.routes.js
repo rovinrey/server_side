@@ -1,17 +1,24 @@
-const express = require('express');
-const router = express.Router();
-const authMiddleware = require('../middlewares/auth.middleware');
-const upload = require('../middlewares/upload.middleware');
-const docsController = require('../controllers/spes.documents.controller');
+import { Router } from 'express';
+const router = Router();
+import authMiddleware from '../middlewares/auth.middleware.js';
+import upload from '../middlewares/upload.middleware.js';
+const single = upload.single('document');
+
+import {
+  getDocumentStatus,
+  handleUploadDocument as uploadDocument,
+  handleDeleteDocument as deleteDocument,
+} from '../controllers/spes.documents.controller.js';
+
 
 // GET current user's document submission status
-router.get('/status', authMiddleware, docsController.getDocumentStatus);
+router.get('/status', authMiddleware, getDocumentStatus);
 
 // POST upload a single document (multipart/form-data)
 // field: "document" (the file), body field "field_id" (the document type key)
-router.post('/upload', authMiddleware, upload.single('document'), docsController.uploadDocument);
+router.post('/upload', authMiddleware, single, uploadDocument);
 
 // DELETE a specific document by field id
-router.delete('/:fieldId', authMiddleware, docsController.deleteDocument);
+router.delete('/:fieldId', authMiddleware, deleteDocument);
 
-module.exports = router;
+export default router;

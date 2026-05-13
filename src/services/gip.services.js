@@ -1,13 +1,13 @@
-const db = require('../../config');
+import { getConnection } from '../../config.js';
 
 /**
  * Apply to GIP program — creates central application + gip_details + beneficiary record.
  */
-exports.applyToGip = async (data) => {
+export async function applyToGip(data) {
     const userId = data.user_id;
     if (!userId) throw new Error('User ID is required for GIP application');
 
-    const connection = await db.getConnection();
+    const connection = await getConnection();
 
     try {
         await connection.beginTransaction();
@@ -79,4 +79,4 @@ exports.applyToGip = async (data) => {
     } finally {
         connection.release();
     }
-};
+}

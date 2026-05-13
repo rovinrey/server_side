@@ -1,20 +1,27 @@
-const multer = require('multer');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
+import { fileURLToPath } from 'url';
+import { dirname, extname, join } from 'path';
+import fs from 'fs';
+import multer, { diskStorage } from 'multer';
+import { v4 as uuidv4 } from 'uuid';
 
-const UPLOAD_DIR = path.join(__dirname, '../../uploads/beneficiary-documents');
 
+// THE FIX: Define __dirname manually for ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const UPLOAD_DIR = join(__dirname, '../../uploads/beneficiary-documents');
+
+// Ensure folder exists so the server doesn't crash on boot
 if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-const storage = multer.diskStorage({
+const storage = diskStorage({
     destination: (_req, _file, cb) => {
         cb(null, UPLOAD_DIR);
     },
     filename: (_req, file, cb) => {
-        const ext = path.extname(file.originalname).toLowerCase();
+        const ext = extname(file.originalname).toLowerCase();
         cb(null, `${uuidv4()}${ext}`);
     },
 });
@@ -39,4 +46,4 @@ const documentsUpload = multer({
     limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
 });
 
-module.exports = documentsUpload;
+export default documentsUpload;
