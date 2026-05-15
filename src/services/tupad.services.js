@@ -90,46 +90,29 @@ exports.approveTupadApplication = async (applicationId) => {
             [application.user_id]
         );
 
-        // 4. Check slot availability and increment filled slot using program_id
+        // 4. Validate available program slots without reserving them on approval.
+        // Enrollment should be the only action that increments filled slots.
         if (application.program_id) {
-            const [slotResult] = await connection.execute(
-                `UPDATE programs
-                 SET filled = filled + 1
+            const [progCheck] = await connection.execute(
+                `SELECT program_id, slots, filled
+                 FROM programs
                  WHERE program_id = ?
-                   AND status IN ('active', 'ongoing')
-                   AND filled < slots`,
+                   AND status IN ('active', 'ongoing')`,
                 [application.program_id]
             );
-            if (slotResult.affectedRows === 0) {
-                const [progCheck] = await connection.execute(
-                    `SELECT program_id, slots, filled FROM programs WHERE program_id = ?`,
-                    [application.program_id]
-                );
-                if (progCheck.length > 0 && progCheck[0].filled >= progCheck[0].slots) {
-                    throw new Error(`Cannot approve: program has no available slots (${progCheck[0].filled}/${progCheck[0].slots})`);
-                }
+            if (!progCheck.length || progCheck[0].filled >= progCheck[0].slots) {
+                throw new Error(`Cannot approve: program has no available slots (${progCheck[0]?.filled || 0}/${progCheck[0]?.slots || 0})`);
             }
         } else {
             // Legacy fallback for applications without program_id
-            const [slotResult] = await connection.execute(
-                `UPDATE programs
-                 SET filled = filled + 1
+            const [progCheck] = await connection.execute(
+                `SELECT program_id, slots, filled FROM programs
                  WHERE LOWER(program_name) LIKE 'tupad%'
                    AND status IN ('active', 'ongoing')
-                   AND filled < slots
-                 ORDER BY start_date DESC
-                 LIMIT 1`
+                 ORDER BY start_date DESC LIMIT 1`
             );
-            if (slotResult.affectedRows === 0) {
-                const [progCheck] = await connection.execute(
-                    `SELECT program_id, slots, filled FROM programs
-                     WHERE LOWER(program_name) LIKE 'tupad%'
-                       AND status IN ('active', 'ongoing')
-                     ORDER BY start_date DESC LIMIT 1`
-                );
-                if (progCheck.length > 0 && progCheck[0].filled >= progCheck[0].slots) {
-                    throw new Error(`Cannot approve: TUPAD program has no available slots (${progCheck[0].filled}/${progCheck[0].slots})`);
-                }
+            if (!progCheck.length || progCheck[0].filled >= progCheck[0].slots) {
+                throw new Error(`Cannot approve: TUPAD program has no available slots (${progCheck[0]?.filled || 0}/${progCheck[0]?.slots || 0})`);
             }
         }
 

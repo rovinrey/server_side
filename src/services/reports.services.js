@@ -186,6 +186,70 @@ exports.getBeneficiaryMasterList = async (programType = null, status = null) => 
     };
 
 };
+
+// ══════════════════════════════════════════════════════
+// ANNEX K: MONTHLY/COMPLETION ACCOMPLISHMENT REPORT
+// ══════════════════════════════════════════════════════
+
+exports.getAnnexKData = async (programId) => {
+    const dailyWage = await getDailyWage();
+    const totalDays = 10; // Standard TUPAD work cycle
+    const totalPayout = totalDays * dailyWage;
+
+    const query = `
+        SELECT
+            p.program_id,
+            p.program_name,
+            p.location,
+            p.start_date,
+            p.end_date,
+            p.slots,
+            p.filled,
+            COALESCE(
+                NULLIF(TRIM(CONCAT_WS(' ', b.first_name, b.middle_name, b.last_name)), ''),
+                u.user_name
+            ) AS beneficiary_name,
+            pe.enrollment_date,
+            pe.current_status,
+            ? AS daily_wage,
+            ? AS total_days,
+            ? AS total_payout
+        FROM programs p
+        INNER JOIN program_enrollees pe ON p.program_id = pe.program_id
+        INNER JOIN applications a ON pe.application_id = a.application_id
+        LEFT JOIN beneficiaries b ON a.user_id = b.user_id
+        LEFT JOIN users u ON a.user_id = u.user_id
+        WHERE p.program_id = ? AND pe.current_status = 'Active'
+        ORDER BY beneficiary_name ASC
+    `;
+
+    const [rows] = await db.execute(query, [dailyWage, totalDays, totalPayout, programId]);
+
+    if (rows.length === 0) {
+        throw new Error('No active enrollees found for this program');
+    }
+
+    const program = {
+        program_id: rows[0].program_id,
+        program_name: rows[0].program_name,
+        location: rows[0].location,
+        start_date: rows[0].start_date,
+        end_date: rows[0].end_date,
+        slots: rows[0].slots,
+        filled: rows[0].filled,
+        daily_wage: dailyWage,
+        total_days: totalDays,
+        total_payout: totalPayout,
+        beneficiaries: rows.map(row => ({
+            name: row.beneficiary_name || 'Unknown',
+            enrollment_date: row.enrollment_date,
+            status: row.current_status
+        }))
+    };
+
+    return program;
+};
+
 // ══════════════════════════════════════════════════════
 // 3. PAYROLL & DISBURSEMENT SUMMARY
 // ══════════════════════════════════════════════════════

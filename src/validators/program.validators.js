@@ -69,7 +69,6 @@ exports.validateProgram = (req, res, next) => {
  * Attach to PUT /:program_id when budget changes.
  */
 exports.validateBudgetUpdate = async (req, res, next) => {
-    const db = require('../../db');
     const { program_id } = req.params;
     const { budget } = req.body;
 

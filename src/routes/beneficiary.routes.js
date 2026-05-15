@@ -12,6 +12,7 @@ router.get('/count', authMiddleware, requireAdminOrStaff, beneficiaryController.
 // Admin management routes
 router.get('/admin/all', authMiddleware, requireAdminOrStaff, beneficiaryController.getAllForAdmin);
 router.get('/admin/:beneficiaryId', authMiddleware, requireAdminOrStaff, beneficiaryController.getById);
+router.get('/admin/user/:userId/employment-history', authMiddleware, requireAdminOrStaff, beneficiaryController.getAdminBeneficiaryEmploymentHistory);
 router.post('/admin', authMiddleware, requireAdmin, beneficiaryController.addBeneficiary);
 router.put('/admin/:beneficiaryId', authMiddleware, requireAdmin, beneficiaryController.updateBeneficiary);
 router.delete('/admin/:beneficiaryId', authMiddleware, requireAdmin, beneficiaryController.deleteBeneficiary);

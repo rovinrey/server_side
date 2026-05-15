@@ -1,5 +1,8 @@
+const fs = require('fs');
+const path = require('path');
 const db = require('../../config');
 const ExcelJS = require('exceljs');
+const { Document, Packer, Paragraph, Table, TableCell, TableRow, TextRun, ImageRun, AlignmentType, WidthType } = require('docx');
 const tupadService = require('../services/tupad.services');
 const dilpService = require('../services/dilp.services');
 const spesService = require('../services/spes.services');
@@ -103,6 +106,80 @@ function annexWriteSignatureBlock(ws, lastCol, sigRow) {
     ws.getCell(`H${sigRow + 3}`).alignment = { horizontal: 'center' };
 }
 
+function createImageRun(imagePath) {
+    if (!imagePath) {
+        return null;
+    }
+
+    const normalizedPath = imagePath.replace(/^\//, '');
+    const absoluteImagePath = path.isAbsolute(imagePath)
+        ? imagePath
+        : path.join(__dirname, '../../', normalizedPath);
+
+    if (!fs.existsSync(absoluteImagePath)) {
+        return null;
+    }
+
+    const imageBuffer = fs.readFileSync(absoluteImagePath);
+    const fileExt = path.extname(absoluteImagePath).toLowerCase();
+    const supportedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+
+    if (!supportedExtensions.includes(fileExt)) {
+        return null;
+    }
+
+    return new ImageRun({
+        data: imageBuffer,
+        transformation: {
+            width: 450,
+            height: 300,
+        },
+    });
+}
+
+function buildPhotoParagraphs(label, photoPath) {
+    const children = [
+        new Paragraph({
+            children: [
+                new TextRun({
+                    text: `${label}`,
+                    bold: true,
+                    size: 24,
+                    font: 'Arial',
+                }),
+            ],
+            spacing: { before: 200, after: 100 },
+        }),
+    ];
+
+    const imageRun = createImageRun(photoPath);
+    if (imageRun) {
+        children.push(
+            new Paragraph({
+                children: [imageRun],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 200 },
+            })
+        );
+    } else {
+        children.push(
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: photoPath ? `Photo file not found: ${photoPath}` : 'No photo available',
+                        size: 22,
+                        font: 'Arial',
+                        italics: true,
+                    }),
+                ],
+                spacing: { after: 200 },
+            })
+        );
+    }
+
+    return children;
+}
+
 // tupad application endpoint
 exports.applyToTupad = async (req, res) => {
     try {
@@ -119,6 +196,104 @@ exports.applyToTupad = async (req, res) => {
     } catch (error) {
         console.error('TUPAD submission error:', error.message || error);
         res.status(500).json({ message: error.message || 'Error saving TUPAD application' });
+    }
+};
+
+exports.createTupadReport = async (req, res) => {
+    try {
+        const { program_id, period_of_work, detail_of_work } = req.body;
+        if (!program_id || !period_of_work || !detail_of_work) {
+            return res.status(400).json({ message: 'program_id, period_of_work, and detail_of_work are required' });
+        }
+
+        const createdBy = req.user?.id;
+        if (!createdBy) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        const query = `
+            INSERT INTO tupad_reports (program_id, period_of_work, detail_of_work, created_by)
+            VALUES (?, ?, ?, ?)
+        `;
+        const [result] = await db.execute(query, [program_id, period_of_work, detail_of_work, createdBy]);
+
+        res.status(201).json({ message: 'TUPAD report created successfully', report_id: result.insertId });
+    } catch (error) {
+        console.error('Error creating TUPAD report:', error.message || error);
+        res.status(500).json({ message: 'Failed to create TUPAD report', error: error.message || error });
+    }
+};
+
+exports.uploadTupadReportPhotos = async (req, res) => {
+    try {
+        const { reportId } = req.params;
+        const files = req.files || {};
+        const updateFields = [];
+        const params = [];
+
+        if (files.before_photo?.[0]) {
+            updateFields.push('before_photo_path = ?');
+            params.push(files.before_photo[0].path);
+        }
+        if (files.during_photo?.[0]) {
+            updateFields.push('during_photo_path = ?');
+            params.push(files.during_photo[0].path);
+        }
+        if (files.after_photo?.[0]) {
+            updateFields.push('after_photo_path = ?');
+            params.push(files.after_photo[0].path);
+        }
+
+        if (!updateFields.length) {
+            return res.status(400).json({ message: 'No photos were uploaded' });
+        }
+
+        params.push(reportId);
+        const query = `UPDATE tupad_reports SET ${updateFields.join(', ')} WHERE report_id = ?`;
+        const [result] = await db.execute(query, params);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Report not found' });
+        }
+
+        const urls = {};
+        if (files.before_photo?.[0]) urls.before_photo_url = `/uploads/tupad-report-photos/${path.basename(files.before_photo[0].path)}`;
+        if (files.during_photo?.[0]) urls.during_photo_url = `/uploads/tupad-report-photos/${path.basename(files.during_photo[0].path)}`;
+        if (files.after_photo?.[0]) urls.after_photo_url = `/uploads/tupad-report-photos/${path.basename(files.after_photo[0].path)}`;
+
+        res.status(200).json({ message: 'Photos uploaded successfully', urls });
+    } catch (error) {
+        console.error('Error uploading TUPAD report photos:', error.message || error);
+        res.status(500).json({ message: 'Failed to upload photos', error: error.message || error });
+    }
+};
+
+exports.getTupadReports = async (req, res) => {
+    try {
+        const programId = req.query.program_id ? Number(req.query.program_id) : null;
+        const whereClause = programId ? 'WHERE program_id = ?' : '';
+        const params = programId ? [programId] : [];
+        const query = `SELECT * FROM tupad_reports ${whereClause} ORDER BY created_at DESC`;
+        const [reports] = await db.execute(query, params);
+        res.status(200).json(reports);
+    } catch (error) {
+        console.error('Error fetching TUPAD reports:', error.message || error);
+        res.status(500).json({ message: 'Failed to fetch TUPAD reports', error: error.message || error });
+    }
+};
+
+exports.getTupadReport = async (req, res) => {
+    try {
+        const { reportId } = req.params;
+        const query = 'SELECT * FROM tupad_reports WHERE report_id = ?';
+        const [reports] = await db.execute(query, [reportId]);
+        if (!Array.isArray(reports) || reports.length === 0) {
+            return res.status(404).json({ message: 'Report not found' });
+        }
+        res.status(200).json(reports[0]);
+    } catch (error) {
+        console.error('Error fetching TUPAD report:', error.message || error);
+        res.status(500).json({ message: 'Failed to fetch TUPAD report', error: error.message || error });
     }
 };
 
@@ -1687,5 +1862,325 @@ exports.deleteAttendanceRecord = async (req, res) => {
     } catch (error) {
         console.error('Error deleting attendance record:', error.message);
         res.status(500).json({ message: 'Failed to delete attendance record' });
+    }
+};
+
+// =============================================
+// Annex K Word Export (TUPAD accomplishment report)
+// =============================================
+exports.exportAnnexK = async (req, res) => {
+    try {
+        if (!['admin', 'staff'].includes(req.user?.role)) {
+            return res.status(403).json({ message: 'Only admin or staff can export Annex K' });
+        }
+
+        const programId = req.query.program_id ? Number(req.query.program_id) : null;
+        const reportId = req.query.report_id ? Number(req.query.report_id) : null;
+        const whereClauses = [];
+        const values = [];
+
+        if (programId) {
+            whereClauses.push('tr.program_id = ?');
+            values.push(programId);
+        }
+
+        if (reportId) {
+            whereClauses.push('tr.report_id = ?');
+            values.push(reportId);
+        }
+
+        const whereClause = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+        const query = `
+            SELECT
+                tr.report_id,
+                tr.program_id,
+                tr.period_of_work,
+                tr.detail_of_work,
+                tr.before_photo_path,
+                tr.during_photo_path,
+                tr.after_photo_path,
+                tr.created_by,
+                tr.created_at,
+                p.program_name,
+                p.program_type,
+                u.first_name as creator_first_name,
+                u.last_name as creator_last_name
+            FROM tupad_reports tr
+            LEFT JOIN programs p ON tr.program_id = p.program_id
+            LEFT JOIN users u ON tr.created_by = u.user_id
+            ${whereClause}
+            ORDER BY tr.created_at ASC
+        `;
+
+        const [reports] = await db.execute(query, values);
+
+        if (!Array.isArray(reports) || reports.length === 0) {
+            return res.status(404).json({ message: 'No TUPAD reports found for the requested criteria' });
+        }
+
+        const uniqueProgramNames = [...new Set(reports.map((report) => report.program_name).filter(Boolean))];
+        const programTitle = uniqueProgramNames.length === 1 ? uniqueProgramNames[0] : 'TUPAD Program';
+
+        const children = [
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: 'ANNEX K',
+                        bold: true,
+                        size: 32,
+                        font: 'Arial',
+                    }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 200 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: 'TUPAD ACCOMPLISHMENT REPORT',
+                        bold: true,
+                        size: 28,
+                        font: 'Arial',
+                    }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 400 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: `Program: ${programTitle}`,
+                        size: 24,
+                        font: 'Arial',
+                    }),
+                ],
+                spacing: { after: 200 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: `Date: ${new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })}`,
+                        size: 24,
+                        font: 'Arial',
+                    }),
+                ],
+                spacing: { after: 400 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: 'SECTION A: PERIOD OF WORK AND DETAIL OF WORK',
+                        bold: true,
+                        size: 26,
+                        font: 'Arial',
+                    }),
+                ],
+                spacing: { before: 400, after: 200 },
+            }),
+            new Table({
+                width: {
+                    size: 100,
+                    type: WidthType.PERCENTAGE,
+                },
+                rows: [
+                    new TableRow({
+                        children: [
+                            new TableCell({
+                                children: [
+                                    new Paragraph({
+                                        children: [
+                                            new TextRun({
+                                                text: 'Period of Work',
+                                                bold: true,
+                                                size: 22,
+                                                font: 'Arial',
+                                            }),
+                                        ],
+                                        alignment: AlignmentType.CENTER,
+                                    }),
+                                ],
+                                width: { size: 30, type: WidthType.PERCENTAGE },
+                            }),
+                            new TableCell({
+                                children: [
+                                    new Paragraph({
+                                        children: [
+                                            new TextRun({
+                                                text: 'Detail of Work',
+                                                bold: true,
+                                                size: 22,
+                                                font: 'Arial',
+                                            }),
+                                        ],
+                                        alignment: AlignmentType.CENTER,
+                                    }),
+                                ],
+                                width: { size: 70, type: WidthType.PERCENTAGE },
+                            }),
+                        ],
+                    }),
+                    ...reports.map((report) =>
+                        new TableRow({
+                            children: [
+                                new TableCell({
+                                    children: [
+                                        new Paragraph({
+                                            children: [
+                                                new TextRun({
+                                                    text: report.period_of_work || '',
+                                                    size: 22,
+                                                    font: 'Arial',
+                                                }),
+                                            ],
+                                            alignment: AlignmentType.LEFT,
+                                        }),
+                                    ],
+                                    width: { size: 30, type: WidthType.PERCENTAGE },
+                                }),
+                                new TableCell({
+                                    children: [
+                                        new Paragraph({
+                                            children: [
+                                                new TextRun({
+                                                    text: report.detail_of_work || '',
+                                                    size: 22,
+                                                    font: 'Arial',
+                                                }),
+                                            ],
+                                            alignment: AlignmentType.LEFT,
+                                        }),
+                                    ],
+                                    width: { size: 70, type: WidthType.PERCENTAGE },
+                                }),
+                            ],
+                        })
+                    ),
+                ],
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: 'SECTION B: PHOTOGRAPHIC DOCUMENTATION',
+                        bold: true,
+                        size: 26,
+                        font: 'Arial',
+                    }),
+                ],
+                spacing: { before: 600, after: 200 },
+            }),
+            ...reports.flatMap((report) => [
+                new Paragraph({
+                    children: [
+                        new TextRun({
+                            text: `TUPAD Report #${report.report_id}`,
+                            bold: true,
+                            size: 24,
+                            font: 'Arial',
+                        }),
+                    ],
+                    spacing: { before: 300, after: 120 },
+                }),
+                ...buildPhotoParagraphs('BEFORE WORK:', report.before_photo_path),
+                ...buildPhotoParagraphs('DURING WORK:', report.during_photo_path),
+                ...buildPhotoParagraphs('AFTER WORK:', report.after_photo_path),
+            ]),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: 'Prepared by:',
+                        size: 24,
+                        font: 'Arial',
+                    }),
+                ],
+                spacing: { before: 600, after: 100 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: '______________________________',
+                        size: 24,
+                        font: 'Arial',
+                    }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 50 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: `${reports[0].creator_first_name || ''} ${reports[0].creator_last_name || ''}`,
+                        size: 22,
+                        font: 'Arial',
+                        italics: true,
+                    }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 50 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: 'PESO Manager',
+                        size: 22,
+                        font: 'Arial',
+                        italics: true,
+                    }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 200 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: 'Noted by:',
+                        size: 24,
+                        font: 'Arial',
+                    }),
+                ],
+                spacing: { after: 100 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: '______________________________',
+                        size: 24,
+                        font: 'Arial',
+                    }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 50 },
+            }),
+            new Paragraph({
+                children: [
+                    new TextRun({
+                        text: 'Municipal Mayor / Authorized Representative',
+                        size: 22,
+                        font: 'Arial',
+                        italics: true,
+                    }),
+                ],
+                alignment: AlignmentType.CENTER,
+            }),
+        ];
+
+        const doc = new Document({
+            sections: [
+                {
+                    properties: {},
+                    children,
+                },
+            ],
+        });
+
+        const buffer = await Packer.toBuffer(doc);
+        const filename = `Annex_K_TUPAD_Accomplishment_Report_${new Date().toISOString().slice(0, 10)}.docx`;
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+        res.send(buffer);
+    } catch (error) {
+        console.error('Error exporting Annex K:', error.message || error);
+        res.status(500).json({ message: 'Error exporting Annex K', error: error.message || error });
     }
 };

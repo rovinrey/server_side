@@ -11,6 +11,7 @@ const { validateGip } = require('../validators/gip.validators');
 const { validateJobSeekers } = require('../validators/jobseeker.validators');
 const { requireAdmin, requireAdminOrStaff } = require('../validators/common.validators');
 const authMiddleware = require('../middlewares/auth.middleware');
+const reportPhotosUpload = require('../middlewares/tupad.reports.upload.middleware');
 // Get all applications from all program
 
 router.get('/all', authMiddleware, applicationController.getAllApplications);
@@ -64,6 +65,17 @@ router.get('/annex-d/export', authMiddleware, applicationController.exportAnnexD
 router.get('/annex-b/export', authMiddleware, applicationController.exportAnnexB);
 router.get('/annex-h/export', authMiddleware, applicationController.exportAnnexH);
 router.get('/annex-l/export', authMiddleware, applicationController.exportAnnexL);
+router.get('/annex-k/export', authMiddleware, applicationController.exportAnnexK);
+
+// TUPAD Annex K report CRUD
+router.post('/tupad-reports', authMiddleware, applicationController.createTupadReport);
+router.post('/tupad-reports/:reportId/photos', authMiddleware, reportPhotosUpload.fields([
+    { name: 'before_photo', maxCount: 1 },
+    { name: 'during_photo', maxCount: 1 },
+    { name: 'after_photo', maxCount: 1 },
+]), applicationController.uploadTupadReportPhotos);
+router.get('/tupad-reports', authMiddleware, applicationController.getTupadReports);
+router.get('/tupad-reports/:reportId', authMiddleware, applicationController.getTupadReport);
 
 // Admin: Batch update Excel data inline (without MS Excel)
 router.put('/excel/update', authMiddleware, applicationController.updateExcelData);

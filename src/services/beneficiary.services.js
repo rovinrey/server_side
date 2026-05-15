@@ -1503,9 +1503,6 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
   const connection = await db.getConnection();
 
   try {
-    // #region agent log
-    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H2',location:'beneficiary.services.js:enrollBeneficiary:entry',message:'enrollBeneficiary called',data:{applicationId:Number(applicationId)||null,programId:Number(programId)||null},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     await connection.beginTransaction();
 
     // 1. Get application (includes user_id + program_type)
@@ -1593,9 +1590,6 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
     }
 
     const { slots, filled } = progRows[0];
-    // #region agent log
-    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H3',location:'beneficiary.services.js:enrollBeneficiary:programLock',message:'program slots snapshot before enrollment',data:{programId:Number(programId)||null,slots:Number(slots)||0,filled:Number(filled)||0},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     if (filled >= slots) {
       throw new Error('Program has no available slots');
@@ -1624,32 +1618,6 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
        VALUES (?, ?, NOW(), 'Active')`,
       [programId, applicationId]
     );
-
-    const [afterInsertRows] = await connection.execute(
-      `SELECT slots, filled FROM programs WHERE program_id = ?`,
-      [programId]
-    );
-    // #region agent log
-    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H4',location:'beneficiary.services.js:enrollBeneficiary:afterInsert',message:'program snapshot immediately after enrollee insert',data:{programId:Number(programId)||null,filledAfterInsert:Number(afterInsertRows?.[0]?.filled)||0,slotsAfterInsert:Number(afterInsertRows?.[0]?.slots)||0,enrolleeId:result?.insertId||null},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-
-    // ─────────────────────────────────────────────
-    // 5. Update slots
-    // ─────────────────────────────────────────────
-    const [updateFilledResult] = await connection.execute(
-      `UPDATE programs 
-       SET filled = filled + 1 
-       WHERE program_id = ?`,
-      [programId]
-    );
-
-    const [afterUpdateRows] = await connection.execute(
-      `SELECT slots, filled FROM programs WHERE program_id = ?`,
-      [programId]
-    );
-    // #region agent log
-    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3a7d7'},body:JSON.stringify({sessionId:'f3a7d7',runId:'approval-slot-debug',hypothesisId:'H5',location:'beneficiary.services.js:enrollBeneficiary:afterFilledUpdate',message:'program snapshot after manual filled increment',data:{programId:Number(programId)||null,updateAffectedRows:updateFilledResult?.affectedRows||0,filledAfterManualIncrement:Number(afterUpdateRows?.[0]?.filled)||0,slotsAfterManualIncrement:Number(afterUpdateRows?.[0]?.slots)||0},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     await connection.commit();
 

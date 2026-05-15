@@ -1258,3 +1258,27 @@ exports.exportConsolidatedReport = async (req, res) => {
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
 };
+
+// ── Annex K: Monthly/Completion Accomplishment Report ──
+
+exports.generateAnnexK = async (req, res) => {
+    try {
+        const { programId } = req.params;
+
+        if (!programId || isNaN(programId)) {
+            return res.status(400).json({ message: 'Valid program ID is required' });
+        }
+
+        const data = await reportService.getAnnexKData(parseInt(programId));
+
+        // For now, return JSON data. Later we can integrate docxtemplater for .docx generation
+        res.json({
+            success: true,
+            data: data
+        });
+
+    } catch (error) {
+        console.error('Generate Annex K error:', error.message);
+        res.status(500).json({ message: error.message || 'Error generating Annex K report' });
+    }
+};

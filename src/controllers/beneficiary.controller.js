@@ -102,6 +102,22 @@ exports.getById = async (req, res) => {
     }
 };
 
+// Get employment history for an admin-managed beneficiary by user id
+exports.getAdminBeneficiaryEmploymentHistory = async (req, res) => {
+    try {
+        const userId = Number(req.params.userId);
+        if (!userId) {
+            return res.status(400).json({ message: 'userId is required' });
+        }
+
+        const history = await beneficiaryService.getBeneficiaryProgramHistory(userId);
+        res.json({ history });
+    } catch (err) {
+        console.error('GET EMPLOYMENT HISTORY ERROR:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+};
+
 // Admin adds a new beneficiary
 exports.addBeneficiary = async (req, res) => {
     try {

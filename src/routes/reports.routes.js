@@ -22,6 +22,9 @@ router.get('/consolidated', authMiddleware, requireAdminOrStaff, reportsControll
 router.get('/barangay-beneficiaries', authMiddleware, requireAdminOrStaff, reportsController.getBarangayBeneficiaries);
 router.get('/barangay-list', authMiddleware, requireAdminOrStaff, reportsController.getBarangayList);
 
+// ── Annex K: Monthly/Completion Accomplishment Report ──
+router.get('/annex-k/:programId', authMiddleware, requireAdminOrStaff, reportsController.generateAnnexK);
+
 // ── Excel export endpoints ─────────────────────────
 
 router.get('/export/program-accomplishment', authMiddleware, requireAdminOrStaff, reportsController.exportProgramAccomplishment);
@@ -33,5 +36,10 @@ router.get('/export/employment-facilitation', authMiddleware, requireAdminOrStaf
 router.get('/export/spes', authMiddleware, requireAdminOrStaff, reportsController.exportSpesReport);
 router.get('/export/gip', authMiddleware, requireAdminOrStaff, reportsController.exportGipReport);
 router.get('/export/consolidated', authMiddleware, requireAdminOrStaff, reportsController.exportConsolidatedReport);
+
+// Mount Before/After endpoints from a separate router for clarity.
+const beforeAfterRoutes = require('./beforeAfter.reports.routes');
+router.use(beforeAfterRoutes);
+
 
 module.exports = router;

@@ -90,6 +90,21 @@ exports.getProgramAttendance = async (req, res) => {
   }
 };
 
+exports.getProgramAttendanceById = async (req, res) => {
+  try {
+    const programId = Number(req.params.programId);
+    const { date } = req.query;
+    if (!programId) {
+      return res.status(400).json({ message: 'programId is required' });
+    }
+    const records = await attendanceService.getProgramAttendanceById(programId, date);
+    res.status(200).json(records);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({ message: error.message || 'Failed to fetch program attendance.' });
+  }
+};
+
 exports.adminMarkAttendance = async (req, res) => {
   try {
     const { userId, programType, date, status } = req.body;

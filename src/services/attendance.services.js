@@ -202,23 +202,57 @@ exports.getProgramAttendance = async (programType, date) => {
         NULLIF(TRIM(CONCAT_WS(' ', b.first_name, b.middle_name, b.last_name)), ''),
         u.user_name
       ) AS beneficiary_name,
-      a.program_type,
+      p.program_name AS program_type,
       ar.attendance_id,
       ar.attendance_date,
       ar.time_in,
       ar.time_out,
       ar.status AS attendance_status,
       ar.remarks
-    FROM applications a
+    FROM program_enrollees pe
+    INNER JOIN applications a ON pe.application_id = a.application_id
+    INNER JOIN programs p ON pe.program_id = p.program_id
     LEFT JOIN users u ON u.user_id = a.user_id
     LEFT JOIN beneficiaries b ON b.user_id = a.user_id
     LEFT JOIN attendance_records ar ON ar.user_id = a.user_id AND ar.attendance_date = ?
-    WHERE a.program_type = ? AND a.status = 'Approved'
-    GROUP BY a.user_id
+    WHERE p.program_type = ? AND pe.current_status = 'Active'
     ORDER BY beneficiary_name ASC
   `;
 
   const [rows] = await db.execute(query, [attendanceDate, programType]);
+  return rows;
+};
+
+// Get beneficiaries for a specific program ID with true enrolled beneficiaries
+exports.getProgramAttendanceById = async (programId, date) => {
+  await ensureAttendanceTable();
+  const attendanceDate = date || new Date().toISOString().slice(0, 10);
+
+  const query = `
+    SELECT
+      a.user_id,
+      COALESCE(
+        NULLIF(TRIM(CONCAT_WS(' ', b.first_name, b.middle_name, b.last_name)), ''),
+        u.user_name
+      ) AS beneficiary_name,
+      p.program_name AS program_type,
+      ar.attendance_id,
+      ar.attendance_date,
+      ar.time_in,
+      ar.time_out,
+      ar.status AS attendance_status,
+      ar.remarks
+    FROM program_enrollees pe
+    INNER JOIN applications a ON pe.application_id = a.application_id
+    INNER JOIN programs p ON pe.program_id = p.program_id
+    LEFT JOIN users u ON u.user_id = a.user_id
+    LEFT JOIN beneficiaries b ON b.user_id = a.user_id
+    LEFT JOIN attendance_records ar ON ar.user_id = a.user_id AND ar.attendance_date = ?
+    WHERE pe.program_id = ? AND pe.current_status = 'Active'
+    ORDER BY beneficiary_name ASC
+  `;
+
+  const [rows] = await db.execute(query, [attendanceDate, programId]);
   return rows;
 };
 
