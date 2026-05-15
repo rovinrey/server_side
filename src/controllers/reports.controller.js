@@ -1,11 +1,11 @@
 // ── TUPAD Beneficiaries Excel Export ───────────────
-exports.exportTupadBeneficiariesExcel = async (req, res) => {
+export async function exportTupadBeneficiariesExcel(req, res) {
     try {
         // Only TUPAD program
-        const data = await reportService.getBeneficiaryMasterList('tupad', null);
+        const data = await getBeneficiaryMasterList('tupad', null);
         const rows = data.beneficiaries;
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
         const ws = wb.addWorksheet('TUPAD Beneficiaries', { pageSetup: landscapeSetup });
 
@@ -81,9 +81,11 @@ exports.exportTupadBeneficiariesExcel = async (req, res) => {
         console.error('Export TUPAD beneficiaries error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting TUPAD beneficiaries' });
     }
-};
-const ExcelJS = require('exceljs');
-const reportService = require('../services/reports.services');
+}
+import ExcelJS from 'exceljs';
+const { Workbook } = ExcelJS;
+
+import { getBeneficiaryMasterList, getSummaryReport, getProgramAccomplishment, getPayrollSummary, getAttendanceSummary, getDilpMonitoringReport, getEmploymentFacilitationReport, getSpesReport, getGipReport, getConsolidatedReport } from '../services/reports.services.js';
 
 // ── Shared Excel helpers ─────────────────────────────
 
@@ -225,11 +227,11 @@ const landscapeSetup = {
 
 // ── NEW: Analytics Summary Report ─────────────────────
 
-exports.getSummaryReport = async (req, res) => {
+export async function handleGetSummaryReport(req, res) {
     try {
         const { program, sort, timeRange } = req.query;
         
-        const data = await reportService.getSummaryReport({
+        const data = await getSummaryReport({
             program: program || 'all',
             timeRange: timeRange || 'year',
             sortOrder: sort || 'asc'
@@ -240,31 +242,32 @@ exports.getSummaryReport = async (req, res) => {
         console.error('Summary report error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating summary report' });
     }
-};
+}
 
-exports.getProgramAccomplishment = async (req, res) => {
+export async function handleGetProgramAccomplishment(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getProgramAccomplishment(month || null);
+        const data = await getProgramAccomplishment(month || null);
         res.json(data);
     } catch (error) {
         console.error('Program accomplishment error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
     }
-};
+}
 
-exports.getBeneficiaryMasterList = async (req, res) => {
+// get beneficiary master list with optional filters (program, status)
+export async function handleGetBeneficiaryMasterList(req, res) {
     try {
         const { program, status } = req.query;
-        const data = await reportService.getBeneficiaryMasterList(program || null, status || null);
+        const data = await getBeneficiaryMasterList(program || null, status || null);
         res.json(data);
     } catch (error) {
         console.error('Beneficiary master list error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
     }
-};
+}
 
-exports.getBarangayBeneficiaries = async (req, res) => {
+export async function handleGetBarangayBeneficiaries(req, res) {
     try {
         const { program, timeRange, sortOrder, barangay } = req.query;
         const barangayService = require('../services/barangay.service');
@@ -279,10 +282,10 @@ exports.getBarangayBeneficiaries = async (req, res) => {
         console.error('Barangay beneficiaries error:', error.message);
         res.status(500).json({ message: error.message || 'Error fetching barangay data' });
     }
-};
+}
 
 // Get list of all barangays (names only)
-exports.getBarangayList = async (req, res) => {
+export async function handleGetBarangayList(req, res) {
     try {
         const barangayService = require('../services/barangay.service');
         const data = await barangayService.getBarangayList();
@@ -291,88 +294,90 @@ exports.getBarangayList = async (req, res) => {
         console.error('Barangay list error:', error.message);
         res.status(500).json({ message: error.message || 'Error fetching barangay list' });
     }
-};
+}
 
-exports.getPayrollSummary = async (req, res) => {
+// get the payroll summary for a given month (default to current month)
+export async function handleGetPayrollSummary(req, res) {
     try {
         const month = req.query.month || new Date().toISOString().slice(0, 7);
-        const data = await reportService.getPayrollSummary(month);
+        const data = await getPayrollSummary(month);
         res.json(data);
     } catch (error) {
         console.error('Payroll summary error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
     }
-};
+}
 
-exports.getAttendanceSummary = async (req, res) => {
+// get the summary of attendance records for a given month, with optional program filter
+export async function handleGetAttendanceSummary(req, res) {
     try {
         const month = req.query.month || new Date().toISOString().slice(0, 7);
         const { program } = req.query;
-        const data = await reportService.getAttendanceSummary(month, program || null);
+        const data = await getAttendanceSummary(month, program || null);
         res.json(data);
     } catch (error) {
         console.error('Attendance summary error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
     }
-};
+}
 
-exports.getDilpMonitoringReport = async (req, res) => {
+export async function handleGetDilpMonitoringReport(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getDilpMonitoringReport(month || null);
+        const data = await getDilpMonitoringReport(month || null);
         res.json(data);
     } catch (error) {
         console.error('DILP monitoring error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
     }
-};
+}
 
-exports.getEmploymentFacilitationReport = async (req, res) => {
+export async function handleGetEmploymentFacilitationReport(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getEmploymentFacilitationReport(month || null);
+        const data = await getEmploymentFacilitationReport(month || null);
         res.json(data);
     } catch (error) {
         console.error('Employment facilitation error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
     }
-};
+}
 
-exports.getSpesReport = async (req, res) => {
+export async function handleGetSpesReport(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getSpesReport(month || null);
+        const data = await getSpesReport(month || null);
         res.json(data);
     } catch (error) {
         console.error('SPES report error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
     }
-};
+}
 
-exports.getGipReport = async (req, res) => {
+export async function handleGetGipReport(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getGipReport(month || null);
+        const data = await getGipReport(month || null);
         res.json(data);
     } catch (error) {
         console.error('GIP report error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
     }
-};
+}
 
-exports.getConsolidatedReport = async (req, res) => {
+export async function handleGetConsolidatedReport(req, res) {
     try {
         const { startMonth, endMonth } = req.query;
         if (!startMonth || !endMonth) {
             return res.status(400).json({ message: 'startMonth and endMonth are required (YYYY-MM format)' });
         }
-        const data = await reportService.getConsolidatedReport(startMonth, endMonth);
+        const data = await getConsolidatedReport(startMonth, endMonth);
         res.json(data);
     } catch (error) {
         console.error('Consolidated report error:', error.message);
         res.status(500).json({ message: error.message || 'Error generating report' });
     }
-};
+}
 
 // ══════════════════════════════════════════════════════
 // EXCEL EXPORT endpoints
@@ -380,12 +385,12 @@ exports.getConsolidatedReport = async (req, res) => {
 
 // ── 1. Program Accomplishment Report (Excel) ────────
 
-exports.exportProgramAccomplishment = async (req, res) => {
+export async function exportProgramAccomplishment(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getProgramAccomplishment(month || null);
+        const data = await getProgramAccomplishment(month || null);
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
         wb.created = new Date();
 
@@ -482,16 +487,16 @@ exports.exportProgramAccomplishment = async (req, res) => {
         console.error('Export program accomplishment error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
-};
+}
 
 // ── 2. Beneficiary Master List (Excel) ──────────────
 
-exports.exportBeneficiaryMasterList = async (req, res) => {
+export async function exportBeneficiaryMasterList(req, res) {
     try {
         const { program, status } = req.query;
-        const data = await reportService.getBeneficiaryMasterList(program || null, status || null);
+        const data = await getBeneficiaryMasterList(program || null, status || null);
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
         const ws = wb.addWorksheet('Beneficiary Master List', { pageSetup: landscapeSetup });
 
@@ -604,16 +609,16 @@ exports.exportBeneficiaryMasterList = async (req, res) => {
         console.error('Export beneficiary master list error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
-};
+}
 
 // ── 3. Payroll Summary (Excel) ──────────────────────
 
-exports.exportPayrollSummary = async (req, res) => {
+export async function exportPayrollSummary(req, res) {
     try {
         const month = req.query.month || new Date().toISOString().slice(0, 7);
-        const data = await reportService.getPayrollSummary(month);
+        const data = await getPayrollSummary(month);
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
         const ws = wb.addWorksheet('Payroll Summary', { pageSetup: landscapeSetup });
 
@@ -721,17 +726,17 @@ exports.exportPayrollSummary = async (req, res) => {
         console.error('Export payroll summary error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
-};
+}
 
 // ── 4. Attendance Summary (Excel) ───────────────────
 
-exports.exportAttendanceSummary = async (req, res) => {
+export async function exportAttendanceSummary(req, res) {
     try {
         const month = req.query.month || new Date().toISOString().slice(0, 7);
         const { program } = req.query;
-        const data = await reportService.getAttendanceSummary(month, program || null);
+        const data = await getAttendanceSummary(month, program || null);
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
         const ws = wb.addWorksheet('Attendance Summary', { pageSetup: landscapeSetup });
 
@@ -787,16 +792,16 @@ exports.exportAttendanceSummary = async (req, res) => {
         console.error('Export attendance summary error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
-};
+}
 
 // ── 5. DILP Project Monitoring (Excel) ──────────────
 
-exports.exportDilpMonitoring = async (req, res) => {
+export async function exportDilpMonitoring(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getDilpMonitoringReport(month || null);
+        const data = await getDilpMonitoringReport(month || null);
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
         const ws = wb.addWorksheet('DILP Monitoring', { pageSetup: landscapeSetup });
 
@@ -867,16 +872,16 @@ exports.exportDilpMonitoring = async (req, res) => {
         console.error('Export DILP monitoring error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
-};
+}
 
 // ── 6. Employment Facilitation Report (Excel) ───────
 
-exports.exportEmploymentFacilitation = async (req, res) => {
+export async function exportEmploymentFacilitation(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getEmploymentFacilitationReport(month || null);
+        const data = await getEmploymentFacilitationReport(month || null);
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
         const ws = wb.addWorksheet('Employment Facilitation', { pageSetup: landscapeSetup });
 
@@ -984,16 +989,16 @@ exports.exportEmploymentFacilitation = async (req, res) => {
         console.error('Export employment facilitation error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
-};
+}
 
 // ── 7. SPES Intern Report (Excel) ──────────────────
 
-exports.exportSpesReport = async (req, res) => {
+export async function exportSpesReport(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getSpesReport(month || null);
+        const data = await getSpesReport(month || null);
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
         const ws = wb.addWorksheet('SPES Report', { pageSetup: landscapeSetup });
 
@@ -1063,16 +1068,16 @@ exports.exportSpesReport = async (req, res) => {
         console.error('Export SPES report error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
-};
+}
 
 // ── 8. GIP Intern Report (Excel) ───────────────────
 
-exports.exportGipReport = async (req, res) => {
+export async function exportGipReport(req, res) {
     try {
         const { month } = req.query;
-        const data = await reportService.getGipReport(month || null);
+        const data = await getGipReport(month || null);
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
         const ws = wb.addWorksheet('GIP Report', { pageSetup: landscapeSetup });
 
@@ -1126,20 +1131,20 @@ exports.exportGipReport = async (req, res) => {
         console.error('Export GIP report error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
-};
+}
 
 // ── 9. Consolidated Report (Excel) ─────────────────
 
-exports.exportConsolidatedReport = async (req, res) => {
+export async function exportConsolidatedReport(req, res) {
     try {
         const { startMonth, endMonth } = req.query;
         if (!startMonth || !endMonth) {
             return res.status(400).json({ message: 'startMonth and endMonth required (YYYY-MM format)' });
         }
 
-        const data = await reportService.getConsolidatedReport(startMonth, endMonth);
+        const data = await getConsolidatedReport(startMonth, endMonth);
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new Workbook();
         wb.creator = 'PESO Juban Management System';
 
         // ── Sheet 1: Applications Overview ──
@@ -1257,6 +1262,7 @@ exports.exportConsolidatedReport = async (req, res) => {
         console.error('Export consolidated report error:', error.message);
         res.status(500).json({ message: error.message || 'Error exporting report' });
     }
+<<<<<<< HEAD
 };
 
 // ── Annex K: Monthly/Completion Accomplishment Report ──
@@ -1282,3 +1288,6 @@ exports.generateAnnexK = async (req, res) => {
         res.status(500).json({ message: error.message || 'Error generating Annex K report' });
     }
 };
+=======
+}
+>>>>>>> 826997eb2a2d518c1746e3b6f423c32c134faaa7

@@ -1,4 +1,4 @@
-const otpService = require('../services/otp.services');
+import { requestOTP, verifyOTP, resendOTP } from '../services/otp.services.js';
 
 /**
  * OTP Controller
@@ -9,7 +9,7 @@ const otpService = require('../services/otp.services');
  * POST /api/auth/otp/request
  * Request OTP to be sent to email or phone
  */
-exports.requestOTP = async (req, res) => {
+export async function requestOTP(req, res) {
     try {
         const { identifier, user_name } = req.body;
 
@@ -19,20 +19,20 @@ exports.requestOTP = async (req, res) => {
             });
         }
 
-        const result = await otpService.requestOTP(identifier, user_name || 'User');
+        const result = await requestOTP(identifier, user_name || 'User');
         res.status(200).json(result);
     } catch (error) {
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}
 
 /**
  * POST /api/auth/otp/verify
  * Verify OTP code provided by user
  */
-exports.verifyOTP = async (req, res) => {
+export async function verifyOTP(req, res) {
     try {
         const { identifier, otp_code } = req.body;
 
@@ -42,20 +42,20 @@ exports.verifyOTP = async (req, res) => {
             });
         }
 
-        const result = await otpService.verifyOTP(identifier, otp_code);
+        const result = await verifyOTP(identifier, otp_code);
         res.status(200).json(result);
     } catch (error) {
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}
 
 /**
  * POST /api/auth/otp/resend
  * Resend OTP code with cooldown check
  */
-exports.resendOTP = async (req, res) => {
+export async function resendOTP(req, res) {
     try {
         const { identifier, user_name } = req.body;
 
@@ -65,11 +65,11 @@ exports.resendOTP = async (req, res) => {
             });
         }
 
-        const result = await otpService.resendOTP(identifier, user_name || 'User');
+        const result = await resendOTP(identifier, user_name || 'User');
         res.status(200).json(result);
     } catch (error) {
         const status = error.statusCode || 500;
         const message = error.statusCode ? error.message : 'An unexpected error occurred';
         res.status(status).json({ message });
     }
-};
+}

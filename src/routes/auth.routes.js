@@ -1,9 +1,9 @@
-const express = require('express');
-const router = express.Router();
-const rateLimit = require('express-rate-limit');
-const authController = require('../controllers/auth.controller');
-const authMiddleware = require('../middlewares/auth.middleware');
-const { validateSignup, validateLogin } = require('../validators/auth.validators');
+import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
+import { signup, login, forgotPassword, resetPassword, getProfile, updateProfile, changePassword, createUser } from '../controllers/auth.controller.js';
+import authMiddleware, { requireRole } from '../middlewares/auth.middleware.js';
+import authValidators from '../validators/auth.validators.js';
+const { validateSignup, validateLogin } = authValidators;
 
 // Stricter rate limit only for login/signup to prevent brute-force
 const authLimiter = rateLimit({
@@ -15,16 +15,18 @@ const authLimiter = rateLimit({
 });
 
 
-router.post('/signup', authLimiter, validateSignup, authController.signup);
-router.post('/login', authLimiter, validateLogin, authController.login);
-router.post('/forgot-password', authController.forgotPassword);
-router.post('/reset-password', authController.resetPassword);
-router.get('/getProfile', authMiddleware, authController.getProfile);
-router.put('/updateProfile', authMiddleware, authController.updateProfile);
-router.put('/changePassword', authMiddleware, authController.changePassword);
+const router = Router();
+
+router.post('/signup', authLimiter, validateSignup, signup);
+router.post('/login', authLimiter, validateLogin, login);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
+router.get('/getProfile', authMiddleware, getProfile);
+router.put('/updateProfile', authMiddleware, updateProfile);
+router.put('/changePassword', authMiddleware, changePassword);
 
 // Admin-only route: Create admin or staff user
 // Uses authMiddleware to authenticate, then checks user has 'admin' role
-router.post('/create-user', authMiddleware, authMiddleware.requireRole('admin'), authController.createUser);
+router.post('/create-user', authMiddleware, requireRole('admin'), createUser);
 
-module.exports = router;
+export default router;

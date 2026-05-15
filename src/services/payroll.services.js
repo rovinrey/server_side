@@ -1,10 +1,6 @@
-const db = require('../../config');
-const {
-    calculateLinePayout,
-    sumMoneyParts,
-    normalizeMoneyString,
-    parseMoneyToMinorUnits,
-} = require('../utils/money.utils');
+import { execute } from '../../config.js';
+import { ensurePayoutFields } from './beneficiary.services.js';
+import { calculateLinePayout, sumMoneyParts, normalizeMoneyString, parseMoneyToMinorUnits } from '../utils/money.utils.js';
 
 // ── Schema guard (no runtime CREATE TABLE for payroll_records / disbursements) ──
 let payrollSchemaVerified = false;
@@ -25,7 +21,7 @@ const ensurePayrollAuditColumns = async () => {
     ];
     for (const sql of alters) {
         try {
-            await db.execute(sql);
+            await execute(sql);
         } catch (err) {
             const msg = String(err.message || '');
             const dup = msg.includes('Duplicate column') || err.errno === 1060;
@@ -43,7 +39,7 @@ const ensurePayrollSchema = async () => {
     if (!payrollSchemaVerified) {
         for (const table of ['payroll_records', 'disbursements']) {
             try {
-                await db.execute(`SELECT 1 FROM \`${table}\` LIMIT 1`);
+                await execute(`SELECT 1 FROM \`${table}\` LIMIT 1`);
             } catch (err) {
                 const missing =
                     err.code === 'ER_NO_SUCH_TABLE' ||
@@ -58,6 +54,7 @@ const ensurePayrollSchema = async () => {
         }
         payrollSchemaVerified = true;
     }
+    await ensurePayoutFields();
     await ensurePayrollAuditColumns();
 };
 
@@ -72,7 +69,7 @@ const getDailyWage = async (programType = null) => {
     const fallback = '435.00';
     // If program type specified, try to get program-specific daily wage first
     if (programType) {
-        const [progRows] = await db.execute(
+        const [progRows] = await execute(
             `SELECT setting_value FROM system_settings WHERE setting_key = ?`,
             [`${programType}_daily_wage`]
         );
@@ -86,7 +83,7 @@ const getDailyWage = async (programType = null) => {
     }
 
     // Fallback to default Tupad daily wage
-    const [rows] = await db.execute(
+    const [rows] = await execute(
         `SELECT setting_value FROM system_settings WHERE setting_key = 'tupad_daily_wage'`
     );
     if (rows.length > 0) {
@@ -100,7 +97,7 @@ const getDailyWage = async (programType = null) => {
 };
 
 // Set daily wage for a specific program
-exports.setDailyWage = async (programType, wage) => {
+export async function setDailyWage(programType, wage) {
     const wageStr = normalizeMoneyString(wage);
     if (parseMoneyToMinorUnits(wageStr) <= 0) {
         throw new Error('Daily wage must be a positive amount');
@@ -108,18 +105,18 @@ exports.setDailyWage = async (programType, wage) => {
 
     const key = programType ? `${programType}_daily_wage` : 'tupad_daily_wage';
 
-    await db.execute(
+    await execute(
         `INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
          ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
         [key, wageStr]
     );
 
     return { program_type: programType, daily_wage: wageStr };
-};
+}
 
 // Get daily wage settings for all programs
-exports.getAllDailyWages = async () => {
-    const [rows] = await db.execute(
+export async function getAllDailyWages() {
+    const [rows] = await execute(
         `SELECT setting_key, setting_value FROM system_settings 
          WHERE setting_key LIKE '%_daily_wage'`
     );
@@ -134,7 +131,7 @@ exports.getAllDailyWages = async () => {
         }
     }
     return wages;
-};
+}
 
 /**
  * Normalizes payroll month to `YYYY-MM`, defaulting to current month when invalid or missing.
@@ -155,13 +152,13 @@ const sanitiseMonth = (monthInput) => {
  * Payout lines use `calculateLinePayout` (centavo-precision) with DECIMAL column persistence.
  * @param {string|null|undefined} monthInput `YYYY-MM` or null for current month.
  */
-exports.generatePayroll = async (monthInput) => {
+export async function generatePayroll(monthInput) {
     await ensurePayrollSchema();
     const selectedMonth = sanitiseMonth(monthInput);
     const startDate = `${selectedMonth}-01`;
 
     // Pull attendance-based payroll for all approved beneficiaries across all programs
-    const [rows] = await db.execute(
+    const [rows] = await execute(
         `
         SELECT
             ar.user_id,
@@ -207,7 +204,7 @@ exports.generatePayroll = async (monthInput) => {
         const dailyWageStr = programDailyWages[progType] || '435.00';
         const totalPayoutStr = calculateLinePayout(row.days_worked, dailyWageStr);
 
-        await db.execute(
+        await execute(
             `INSERT INTO payroll_records (user_id, program_type, payroll_month, days_worked, daily_wage, total_payout)
              VALUES (?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
@@ -230,11 +227,11 @@ exports.generatePayroll = async (monthInput) => {
         month: selectedMonth,
         dailyWages: dailyWagesNumeric,
     };
-};
+}
 
 // ── Get payroll for a specific month, optionally filtered by program ─
 
-exports.getPayroll = async (monthInput, programType = null) => {
+export async function getPayroll(monthInput, programType = null) {
     await ensurePayrollSchema();
     const selectedMonth = sanitiseMonth(monthInput);
 
@@ -269,7 +266,7 @@ exports.getPayroll = async (monthInput, programType = null) => {
 
     query += ` ORDER BY pr.program_type, full_name`;
 
-    const [rows] = await db.execute(query, params);
+    const [rows] = await execute(query, params);
 
     const totals = {
         days_worked: rows.reduce((s, r) => s + Number(r.days_worked || 0), 0),
@@ -322,11 +319,11 @@ exports.getPayroll = async (monthInput, programType = null) => {
         calculation_note:
             'days_worked and daily_wage are stored per row; total_payout is derived as days × wage when an admin runs Generate Payroll from attendance.',
     };
-};
+}
 
 // ── Approve payroll for a month ─────────────────────
 
-exports.approvePayroll = async (monthInput, programType, adminUserId) => {
+export async function approvePayroll(monthInput, programType, adminUserId) {
     await ensurePayrollSchema();
     const uid = Number(adminUserId);
     if (!adminUserId || !Number.isFinite(uid) || uid <= 0) {
@@ -346,13 +343,13 @@ exports.approvePayroll = async (monthInput, programType, adminUserId) => {
         params.push(programType);
     }
 
-    const [result] = await db.execute(query, params);
+    const [result] = await execute(query, params);
     return { updated: result.affectedRows };
-};
+}
 
 // ── Mark payroll as released ────────────────────────
 
-exports.releasePayroll = async (monthInput, programType, adminUserId) => {
+export async function releasePayroll(monthInput, programType, adminUserId) {
     await ensurePayrollSchema();
     const uid = Number(adminUserId);
     if (!adminUserId || !Number.isFinite(uid) || uid <= 0) {
@@ -372,7 +369,7 @@ exports.releasePayroll = async (monthInput, programType, adminUserId) => {
         params.push(programType);
     }
 
-    const [result] = await db.execute(query, params);
+    const [result] = await execute(query, params);
 
     // After releasing, update program budget utilization (used column)
     if (result.affectedRows > 0) {
@@ -385,14 +382,14 @@ exports.releasePayroll = async (monthInput, programType, adminUserId) => {
                 GROUP BY LOWER(program_type)
             `;
             const payoutParams = programType ? [selectedMonth, programType] : [selectedMonth];
-            const [payouts] = await db.execute(payoutQuery, payoutParams);
+            const [payouts] = await execute(payoutQuery, payoutParams);
 
             for (const row of payouts) {
                 // Validate that releasing this payroll does not exceed program budget
-                const [progRows] = await db.execute(
+                const [progRows] = await execute(
                     `SELECT program_id, budget, used FROM programs
                      WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
-                       AND status IN ('active', 'ongoing')
+                       AND status IN ('active', 'ongoing', 'ready')
                      ORDER BY start_date DESC LIMIT 1`,
                     [row.program_type]
                 );
@@ -409,7 +406,7 @@ exports.releasePayroll = async (monthInput, programType, adminUserId) => {
                         );
                     }
 
-                    await db.execute(
+                    await execute(
                         `UPDATE programs SET used = used + ? WHERE program_id = ?`,
                         [parseFloat(row.released_total || 0), prog.program_id]
                     );
@@ -421,7 +418,7 @@ exports.releasePayroll = async (monthInput, programType, adminUserId) => {
     }
 
     return { updated: result.affectedRows };
-};
+}
 
 // ── Disbursement CRUD ────────────────────────────────
 
@@ -430,7 +427,7 @@ exports.releasePayroll = async (monthInput, programType, adminUserId) => {
  * @param {object} data Payload from admin UI / API.
  * @param {number} createdByUserId Authenticated admin user id.
  */
-exports.createDisbursement = async (data, createdByUserId) => {
+export async function createDisbursement(data, createdByUserId) {
     await ensurePayrollSchema();
     const uid = Number(createdByUserId);
     if (!createdByUserId || !Number.isFinite(uid) || uid <= 0) {
@@ -470,7 +467,7 @@ exports.createDisbursement = async (data, createdByUserId) => {
     const rand = Math.floor(Math.random() * 900) + 100;
     const batchCode = `${prefix}-${year}-${rand}`;
 
-    const [result] = await db.execute(
+    const [result] = await execute(
         `INSERT INTO disbursements
             (batch_code, program_type, payroll_month, total_amount, recipient_count, payment_mode, scheduled_date, notes, created_by, status_updated_by, status_updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
@@ -478,9 +475,9 @@ exports.createDisbursement = async (data, createdByUserId) => {
     );
 
     return { disbursement_id: result.insertId, batch_code: batchCode };
-};
+}
 
-exports.getDisbursements = async (monthInput = null) => {
+export async function getDisbursements(monthInput = null) {
     await ensurePayrollSchema();
     let query = `SELECT * FROM disbursements`;
     const params = [];
@@ -491,11 +488,11 @@ exports.getDisbursements = async (monthInput = null) => {
     }
 
     query += ` ORDER BY created_at DESC`;
-    const [rows] = await db.execute(query, params);
+    const [rows] = await execute(query, params);
     return rows;
-};
+}
 
-exports.updateDisbursementStatus = async (disbursementId, status, adminUserId, referenceNumber = null) => {
+export async function updateDisbursementStatus(disbursementId, status, adminUserId, referenceNumber = null) {
     await ensurePayrollSchema();
     const uid = Number(adminUserId);
     if (!adminUserId || !Number.isFinite(uid) || uid <= 0) {
@@ -506,6 +503,20 @@ exports.updateDisbursementStatus = async (disbursementId, status, adminUserId, r
     if (!validStatuses.includes(status)) {
         throw new Error(`Invalid status. Must be one of: ${validStatuses.join(', ')}`);
     }
+
+    const [existingRows] = await execute(
+        `SELECT disbursement_id, program_type, total_amount, status
+         FROM disbursements
+         WHERE disbursement_id = ?
+         LIMIT 1`,
+        [disbursementId]
+    );
+    if (!existingRows.length) {
+        throw new Error('Disbursement not found');
+    }
+    const prev = existingRows[0];
+    const prevStatus = String(prev.status || '').trim();
+    const nextStatus = String(status || '').trim();
 
     let query = `UPDATE disbursements SET status = ?, status_updated_by = ?, status_updated_at = NOW()`;
     const params = [status, uid];
@@ -527,17 +538,68 @@ exports.updateDisbursementStatus = async (disbursementId, status, adminUserId, r
     query += ` WHERE disbursement_id = ?`;
     params.push(disbursementId);
 
-    const [result] = await db.execute(query, params);
+    const [result] = await execute(query, params);
+
+    // Keep program budget utilization (programs.used) in sync with disbursement lifecycle.
+    // Only apply budget delta when transitioning into/out of Released.
+    if (result.affectedRows > 0 && prevStatus !== nextStatus) {
+        let delta = 0;
+        if (prevStatus !== 'Released' && nextStatus === 'Released') {
+            delta = parseFloat(prev.total_amount || 0);
+        } else if (prevStatus === 'Released' && nextStatus !== 'Released') {
+            delta = -parseFloat(prev.total_amount || 0);
+        }
+
+        if (delta !== 0) {
+            try {
+                const programType = String(prev.program_type || '').trim();
+                const [progRows] = await execute(
+                    `SELECT program_id, budget, used FROM programs
+                     WHERE LOWER(program_name) LIKE CONCAT(LOWER(?), '%')
+                       AND status IN ('active', 'ongoing', 'ready')
+                     ORDER BY start_date DESC
+                     LIMIT 1`,
+                    [programType]
+                );
+
+                if (progRows.length > 0) {
+                    const prog = progRows[0];
+                    const usedNow = parseFloat(prog.used || 0);
+                    const budget = parseFloat(prog.budget || 0);
+                    const proposed = usedNow + delta;
+
+                    if (delta > 0 && budget > 0 && proposed > budget) {
+                        console.warn(
+                            `[DISBURSEMENT] WARNING: Marking batch as Released would exceed budget ` +
+                            `(used: ₱${usedNow}, add: ₱${delta}, budget: ₱${budget}).`
+                        );
+                    }
+
+                    await execute(
+                        `UPDATE programs
+                         SET used = GREATEST(used + ?, 0)
+                         WHERE program_id = ?`,
+                        [delta, prog.program_id]
+                    );
+                } else {
+                    console.warn('[DISBURSEMENT] No matching program found for budget utilization update:', prev.program_type);
+                }
+            } catch (budgetErr) {
+                console.error('[DISBURSEMENT] Budget update error (non-blocking):', budgetErr.message);
+            }
+        }
+    }
+
     return { updated: result.affectedRows };
-};
+}
 
 // ── Analytics ────────────────────────────────────────
 
-exports.getPayrollAnalytics = async (monthInput = null) => {
+export async function getPayrollAnalytics(monthInput = null) {
     await ensurePayrollSchema();
 
     // Monthly payroll trend (last 12 months)
-    const [monthlyTrend] = await db.execute(`
+    const [monthlyTrend] = await execute(`
         SELECT
             pr.payroll_month,
             SUM(pr.total_payout) AS total_payout,
@@ -551,7 +613,7 @@ exports.getPayrollAnalytics = async (monthInput = null) => {
 
     // Program breakdown (current or given month)
     const currentMonth = sanitiseMonth(monthInput);
-    const [programBreakdown] = await db.execute(`
+    const [programBreakdown] = await execute(`
         SELECT
             pr.program_type,
             COUNT(DISTINCT pr.user_id) AS beneficiary_count,
@@ -565,7 +627,7 @@ exports.getPayrollAnalytics = async (monthInput = null) => {
     `, [currentMonth]);
 
     // Gender breakdown for current month
-    const [genderBreakdown] = await db.execute(`
+    const [genderBreakdown] = await execute(`
         SELECT
             COALESCE(LOWER(b.gender), 'unknown') AS gender,
             COUNT(DISTINCT pr.user_id) AS count,
@@ -577,7 +639,7 @@ exports.getPayrollAnalytics = async (monthInput = null) => {
     `, [currentMonth]);
 
     // Disbursement summary
-    const [disbursementSummary] = await db.execute(`
+    const [disbursementSummary] = await execute(`
         SELECT
             status,
             COUNT(*) AS count,
@@ -588,7 +650,7 @@ exports.getPayrollAnalytics = async (monthInput = null) => {
     `);
 
     // Payroll status breakdown for the month
-    const [statusBreakdown] = await db.execute(`
+    const [statusBreakdown] = await execute(`
         SELECT
             pr.status,
             COUNT(*) AS count,
@@ -599,7 +661,7 @@ exports.getPayrollAnalytics = async (monthInput = null) => {
     `, [currentMonth]);
 
     // Application counts per program
-    const [applicationCounts] = await db.execute(`
+    const [applicationCounts] = await execute(`
         SELECT
             LOWER(program_type) AS program_type,
             status,
@@ -609,7 +671,7 @@ exports.getPayrollAnalytics = async (monthInput = null) => {
     `);
 
     // Attendance stats for the month
-    const [attendanceStats] = await db.execute(`
+    const [attendanceStats] = await execute(`
         SELECT
             status,
             COUNT(*) AS count
@@ -629,14 +691,14 @@ exports.getPayrollAnalytics = async (monthInput = null) => {
         applicationCounts,
         attendanceStats,
     };
-};
+}
 
 // ── Beneficiary payout history (for beneficiary portal) ─
 
-exports.getBeneficiaryPayouts = async (userId) => {
+export async function getBeneficiaryPayouts(userId) {
     await ensurePayrollSchema();
 
-    const [rows] = await db.execute(`
+    const [rows] = await execute(`
         SELECT
             pr.payroll_id,
             pr.program_type,
@@ -666,4 +728,4 @@ exports.getBeneficiaryPayouts = async (userId) => {
     totals.total_payout = parseFloat(totalStr);
 
     return { records: rows, totals };
-};
+}

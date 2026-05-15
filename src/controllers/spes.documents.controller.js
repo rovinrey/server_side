@@ -1,6 +1,6 @@
-const db = require('../../config');
-const path = require('path');
-const fs = require('fs');
+import { query } from '../../config.js';
+import { basename } from 'path';
+import { unlinkSync, existsSync } from 'fs';
 
 // Field name → DB column mapping
 const FIELD_TO_COLUMN = {
@@ -22,13 +22,13 @@ const ALL_FIELDS = Object.keys(FIELD_TO_COLUMN);
  * GET /api/spes-documents/status
  * Returns the submission record for the authenticated user.
  */
-exports.getDocumentStatus = async (req, res) => {
+export async function getDocumentStatus(req, res) {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
     try {
-        const [rows] = await db.query(
-            'SELECT * FROM SPES_Applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
+        const [rows] = await query(
+            'SELECT * FROM spes_applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
             [userId]
         );
 
@@ -49,7 +49,7 @@ exports.getDocumentStatus = async (req, res) => {
         const documents = {};
         ALL_FIELDS.forEach((field) => {
             const col = FIELD_TO_COLUMN[field];
-            documents[field] = record[col] ? `/uploads/spes-documents/${path.basename(record[col])}` : null;
+            documents[field] = record[col] ? `/uploads/spes-documents/${basename(record[col])}` : null;
         });
 
         return res.status(200).json({
@@ -61,20 +61,20 @@ exports.getDocumentStatus = async (req, res) => {
         console.error('Error fetching document status:', error.message);
         return res.status(500).json({ message: 'Error fetching document status' });
     }
-};
+}
 
 /**
  * POST /api/spes-documents/upload
  * Uploads one document at a time (field name = document id).
  * The multipart field name must be one of the FIELD_TO_COLUMN keys.
  */
-exports.uploadDocument = async (req, res) => {
+export async function handleUploadDocument(req, res) {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
     const fieldId = req.body.field_id;
     if (!fieldId || !FIELD_TO_COLUMN[fieldId]) {
-        if (req.file) fs.unlinkSync(req.file.path);
+        if (req.file) unlinkSync(req.file.path);
         return res.status(400).json({ message: `Invalid field_id: ${fieldId}` });
     }
 
@@ -87,31 +87,31 @@ exports.uploadDocument = async (req, res) => {
 
     try {
         // Check if a record already exists for this user
-        const [existing] = await db.query(
-            'SELECT spes_application_id FROM SPES_Applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
+        const [existing] = await query(
+            'SELECT spes_application_id FROM spes_applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
             [userId]
         );
 
         if (existing.length === 0) {
             // Create a new record
-            await db.query(
-                `INSERT INTO SPES_Applications (user_id, application_status, ${column}) VALUES (?, 'Draft', ?)`,
+            await query(
+                `INSERT INTO spes_applications (user_id, application_status, ${column}) VALUES (?, 'Draft', ?)`,
                 [userId, filePath]
             );
         } else {
             const recordId = existing[0].spes_application_id;
             // Delete old file if it exists
-            const [current] = await db.query(
-                `SELECT ${column} FROM SPES_Applications WHERE spes_application_id = ?`,
+            const [current] = await query(
+                `SELECT ${column} FROM spes_applications WHERE spes_application_id = ?`,
                 [recordId]
             );
             if (current[0]?.[column]) {
                 const oldPath = current[0][column];
-                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+                if (existsSync(oldPath)) unlinkSync(oldPath);
             }
             // Update the column
-            await db.query(
-                `UPDATE SPES_Applications SET ${column} = ? WHERE spes_application_id = ?`,
+            await query(
+                `UPDATE spes_applications SET ${column} = ? WHERE spes_application_id = ?`,
                 [filePath, recordId]
             );
         }
@@ -119,21 +119,21 @@ exports.uploadDocument = async (req, res) => {
         return res.status(200).json({
             message: 'Document uploaded successfully',
             field_id: fieldId,
-            url: `/uploads/spes-documents/${path.basename(filePath)}`,
+            url: `/uploads/spes-documents/${basename(filePath)}`,
         });
     } catch (error) {
         // Clean up uploaded file on DB error
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        if (existsSync(filePath)) unlinkSync(filePath);
         console.error('Error uploading document:', error.message);
         return res.status(500).json({ message: 'Error saving document' });
     }
-};
+}
 
 /**
  * DELETE /api/spes-documents/:fieldId
  * Removes a previously uploaded document.
  */
-exports.deleteDocument = async (req, res) => {
+export async function handleDeleteDocument(req, res) {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -145,8 +145,8 @@ exports.deleteDocument = async (req, res) => {
     const column = FIELD_TO_COLUMN[fieldId];
 
     try {
-        const [rows] = await db.query(
-            'SELECT spes_application_id, ?? FROM SPES_Applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
+        const [rows] = await query(
+            'SELECT spes_application_id, ?? FROM spes_applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
             [column, userId]
         );
 
@@ -157,10 +157,10 @@ exports.deleteDocument = async (req, res) => {
         const recordId = rows[0].spes_application_id;
         const filePath = rows[0][column];
 
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        if (existsSync(filePath)) unlinkSync(filePath);
 
-        await db.query(
-            `UPDATE SPES_Applications SET ${column} = NULL WHERE spes_application_id = ?`,
+        await query(
+            `UPDATE spes_applications SET ${column} = NULL WHERE spes_application_id = ?`,
             [recordId]
         );
 
@@ -169,4 +169,4 @@ exports.deleteDocument = async (req, res) => {
         console.error('Error deleting document:', error.message);
         return res.status(500).json({ message: 'Error removing document' });
     }
-};
+}

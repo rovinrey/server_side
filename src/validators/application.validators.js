@@ -1,7 +1,6 @@
-const { body, validationResult } = require("express-validator");
+import { body, validationResult } from "express-validator";
 
-// validation rules for TUPAD application
-exports.validateTupadApplication = [
+export const validateTupadApplication = [
     body('first_name').notEmpty().withMessage('First name is required'),
     body('last_name').notEmpty().withMessage('Last name is required'),
     body('date_of_birth').isDate().withMessage('Date of birth must be a valid date'),

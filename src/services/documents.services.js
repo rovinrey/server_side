@@ -1,5 +1,5 @@
-const db = require('../../config');
-const fs = require('fs').promises; // Senior tip: Use promises for non-blocking file I/O
+import { query } from '../../config.js';
+import { promises as fs } from 'fs'; // Senior tip: Use promises for non-blocking file I/O
 
 /**
  * VERIFICATION LOGIC
@@ -11,9 +11,9 @@ const fs = require('fs').promises; // Senior tip: Use promises for non-blocking 
  * @param {number} documentId - The ID of the document to verify.
  * @param {number} adminId - The user_id of the staff performing the action.
  */
-exports.verifyDocument = async (documentId, adminId) => {
+export async function verifyDocument(documentId, adminId) {
     // We use the 'status' column as defined: ENUM('pending','verified','rejected')
-    const [result] = await db.query(
+    const [result] = await query(
         `UPDATE beneficiary_documents 
          SET status = 'verified', 
              verified_by = ?, 
@@ -23,7 +23,7 @@ exports.verifyDocument = async (documentId, adminId) => {
         [adminId, documentId]
     );
     return result.affectedRows > 0;
-};
+}
 
 /**
  * Rejects a document and saves the reason for the beneficiary to see.
@@ -31,8 +31,8 @@ exports.verifyDocument = async (documentId, adminId) => {
  * @param {number} adminId 
  * @param {string} reason - Feedback for the user (e.g., "Image too blurry").
  */
-exports.rejectDocument = async (documentId, adminId, reason = null) => {
-    const [result] = await db.query(
+export async function rejectDocument(documentId, adminId, reason = null) {
+    const [result] = await query(
         `UPDATE beneficiary_documents 
          SET status = 'rejected', 
              verified_by = ?, 
@@ -42,7 +42,7 @@ exports.rejectDocument = async (documentId, adminId, reason = null) => {
         [adminId, reason || 'Document rejected: Please re-upload.', documentId]
     );
     return result.affectedRows > 0;
-};
+}
 
 /**
  * RETRIEVAL & MAINTENANCE LOGIC
@@ -51,19 +51,19 @@ exports.rejectDocument = async (documentId, adminId, reason = null) => {
 /**
  * Fetches all documents for a specific user within a specific program (e.g., TUPAD).
  */
-exports.getDocumentsByUserAndProgram = async (userId, programType) => {
-    const [rows] = await db.query(
+export async function getDocumentsByUserAndProgram(userId, programType) {
+    const [rows] = await query(
         'SELECT * FROM beneficiary_documents WHERE user_id = ? AND program_type = ? ORDER BY uploaded_at ASC',
         [userId, programType]
     );
     return rows;
-};
+}
 
 /**
  * Deletes a document and its physical file from the server.
  */
-exports.deleteDocument = async (userId, documentId) => {
-    const [rows] = await db.query(
+export async function deleteDocument(userId, documentId) {
+    const [rows] = await query(
         'SELECT file_path FROM beneficiary_documents WHERE document_id = ? AND user_id = ?',
         [documentId, userId]
     );
@@ -77,20 +77,20 @@ exports.deleteDocument = async (userId, documentId) => {
         console.error("File deletion failed:", err.message);
     }
 
-    await db.query('DELETE FROM beneficiary_documents WHERE document_id = ?', [documentId]);
+    await query('DELETE FROM beneficiary_documents WHERE document_id = ?', [documentId]);
     return true;
-};
+}
 
 /**
  * Fetches all documents for a specific user across all programs.
  */
-exports.getAllDocumentsByUser = async (userId) => {
-    const [rows] = await db.query(
+export async function getAllDocumentsByUser(userId) {
+    const [rows] = await query(
         'SELECT * FROM beneficiary_documents WHERE user_id = ? ORDER BY uploaded_at ASC',
         [userId]
     );
     return rows;
-};
+}
 
 /**
  * Inserts a new row or replaces file metadata when (user_id, program_type, document_type) already exists.
@@ -100,13 +100,13 @@ exports.getAllDocumentsByUser = async (userId) => {
  * @param {Express.Multer.File} file
  * @returns {Promise<number>} document_id
  */
-exports.uploadDocument = async (userId, programType, documentType, file) => {
+export async function uploadDocument(userId, programType, documentType, file) {
     const filePath = file.path;
     const originalName = file.originalname;
     const fileSize = file.size;
     const mimeType = file.mimetype;
 
-    const [existing] = await db.query(
+    const [existing] = await query(
         'SELECT document_id, file_path FROM beneficiary_documents WHERE user_id = ? AND program_type = ? AND document_type = ?',
         [userId, programType, documentType]
     );
@@ -120,7 +120,7 @@ exports.uploadDocument = async (userId, programType, documentType, file) => {
                 console.error('Old document file unlink failed:', err.message);
             }
         }
-        await db.query(
+        await query(
             `UPDATE beneficiary_documents
              SET original_name = ?, file_path = ?, file_size = ?, mime_type = ?,
                  status = 'pending', remarks = NULL, verified_by = NULL, verified_at = NULL,
@@ -131,21 +131,21 @@ exports.uploadDocument = async (userId, programType, documentType, file) => {
         return existing[0].document_id;
     }
 
-    const [result] = await db.query(
+    const [result] = await query(
         `INSERT INTO beneficiary_documents
             (user_id, program_type, document_type, original_name, file_path, file_size, mime_type, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
         [userId, programType, documentType, originalName, filePath, fileSize, mimeType]
     );
     return result.insertId;
-};
+}
 
 /**
  * Documents for the application's beneficiary (same rows as admin getApplicationDocuments).
  * @param {string|number} applicationId
  */
-exports.getDocumentsByApplicationId = async (applicationId) => {
-    const [rows] = await db.query(
+export async function getDocumentsByApplicationId(applicationId) {
+    const [rows] = await query(
         `
         SELECT
             bd.document_id,
@@ -169,4 +169,4 @@ exports.getDocumentsByApplicationId = async (applicationId) => {
         [applicationId]
     );
     return rows;
-};
+}

@@ -1,16 +1,16 @@
 // routes/tupadRoutes.js
-const express = require('express');
-const router = express.Router();
+import { Router } from 'express';
+const router = Router();
 
-const controller = require('../controllers/tupad.controller');
-const auth = require('../middlewares/auth.middleware');
-const { validateTupad } = require('../validators/tupad.validators');
+import { applyTupad } from '../controllers/tupad.controller.js';
+import auth from '../middlewares/auth.middleware.js';
+import { validateTupad } from '../validators/tupad.validators.js';
 
 router.post(
     '/apply/tupad',
     auth,
     validateTupad,
-    controller.applyTupad
+    applyTupad
 );
 
-module.exports = router;
+export default router;

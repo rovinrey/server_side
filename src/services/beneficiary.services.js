@@ -1,6 +1,6 @@
-const db = require("../../config");
+import { execute, getConnection, query as _query } from "../../config.js";
 
-exports.getAllBeneficiaries = async () => {
+export async function getAllBeneficiaries() {
   const query = `
     SELECT
       a.application_id AS id,
@@ -27,22 +27,22 @@ exports.getAllBeneficiaries = async () => {
     ORDER BY COALESCE(a.approval_date, a.updated_at, a.applied_at) DESC
   `;
 
-  const [rows] = await db.execute(query);
+  const [rows] = await execute(query);
   return [rows];
-};
+}
 
-exports.getApprovedCount = async () => {
+export async function getApprovedCount() {
   const query = `
     SELECT COUNT(*) AS count
     FROM applications
     WHERE status = 'Approved'
   `;
 
-  const [rows] = await db.execute(query);
+  const [rows] = await execute(query);
   return Number(rows[0]?.count || 0);
-};
+}
 
-exports.getBeneficiaryApplicationDetails = async (applicationId) => {
+export async function getBeneficiaryApplicationDetails(applicationId) {
   const baseQuery = `
     SELECT
       a.application_id,
@@ -70,7 +70,7 @@ exports.getBeneficiaryApplicationDetails = async (applicationId) => {
     LIMIT 1
   `;
 
-  const [baseRows] = await db.execute(baseQuery, [applicationId]);
+  const [baseRows] = await execute(baseQuery, [applicationId]);
   if (!baseRows.length) {
     return null;
   }
@@ -86,7 +86,7 @@ exports.getBeneficiaryApplicationDetails = async (applicationId) => {
   };
 
   if (application.program_type === 'tupad') {
-    const [tupadRows] = await db.execute(
+    const [tupadRows] = await execute(
       'SELECT * FROM tupad_details WHERE application_id = ? LIMIT 1',
       [applicationId]
     );
@@ -94,7 +94,7 @@ exports.getBeneficiaryApplicationDetails = async (applicationId) => {
   }
 
   if (application.program_type === 'spes') {
-    const [spesRows] = await db.execute(
+    const [spesRows] = await execute(
       'SELECT * FROM spes_details WHERE application_id = ? LIMIT 1',
       [applicationId]
     );
@@ -105,10 +105,10 @@ exports.getBeneficiaryApplicationDetails = async (applicationId) => {
     application,
     details
   };
-};
+}
 
 // Get all applications across programs (for admin dashboard)
-exports.getAllApplications = async () => {
+export async function getAllApplications() {
   const query = `
     SELECT
       a.application_id AS id,
@@ -130,11 +130,11 @@ exports.getAllApplications = async () => {
     ORDER BY a.applied_at DESC
     LIMIT 200
   `;
-  const [rows] = await db.execute(query);
+  const [rows] = await execute(query);
   return [rows];
-};
+}
 
-exports.getRecentApplications = async (limit = 10, userId = null) => {
+export async function getRecentApplications(limit = 10, userId = null) {
   const params = [];
   let whereClause = "WHERE a.status = 'Pending'";
   if (userId) {
@@ -165,12 +165,12 @@ exports.getRecentApplications = async (limit = 10, userId = null) => {
   `;
   params.push(limit);
 
-  const [rows] = await db.execute(query, params);
+  const [rows] = await execute(query, params);
   return [rows];
-};
+}
 
 // get all pending applications (for admin approval queue)
-exports.getPendingApplications = async (programType = null) => {
+export async function getPendingApplications(programType = null) {
   const params = [];
   let whereClause = "WHERE a.status = 'Pending'";
 
@@ -199,14 +199,14 @@ exports.getPendingApplications = async (programType = null) => {
     ${whereClause}
     ORDER BY a.applied_at DESC
   `;
-  const [rows] = await db.execute(query, params);
+  const [rows] = await execute(query, params);
   return [rows];
-};
+}
 
 // get applications by status (for admin/staff management view).
 // For Approved: by default excludes rows already actively enrolled (enrollment queue).
 // Admins can pass includeEnrolledApproved to list every approved application.
-exports.getApplicationsByStatus = async (status, programType = null, options = {}) => {
+export async function getApplicationsByStatus(status, programType = null, options = {}) {
   const { includeEnrolledApproved = false } = options;
   const params = [status];
   let whereConditions = ['a.status = ?'];
@@ -254,18 +254,18 @@ exports.getApplicationsByStatus = async (status, programType = null, options = {
     ${whereClause}
     ORDER BY a.applied_at DESC
   `;
-  const [rows] = await db.execute(query, params);
+  const [rows] = await execute(query, params);
   return [rows];
-};
+}
 
 // approve application of the benficiary
-exports.approveApplication = async (id) => {
+export async function approveApplication(id) {
   const applicationId = parseInt(id, 10);
   if (Number.isNaN(applicationId) || applicationId < 1) {
     throw new Error('Invalid application ID');
   }
 
-  const connection = await db.getConnection();
+  const connection = await getConnection();
   let userId;
   let programType;
 
@@ -351,7 +351,7 @@ exports.approveApplication = async (id) => {
   // Outside transaction: notification failures must not undo approval
   const programLabel = (programType || '').toUpperCase().replace('_', ' ');
   try {
-    await db.execute(
+    await execute(
       `INSERT INTO notifications (user_id, title, message, type)
        VALUES (?, ?, ?, ?)`,
       [
@@ -366,16 +366,16 @@ exports.approveApplication = async (id) => {
   }
 
   return { applicationId, userId, programType };
-};
+}
 
 // reject application of the benficiary
-exports.rejectApplication = async (id, reason) => {
+export async function rejectApplication(id, reason) {
   const applicationId = parseInt(id, 10);
   if (Number.isNaN(applicationId) || applicationId < 1) {
     throw new Error('Invalid application ID');
   }
 
-  const connection = await db.getConnection();
+  const connection = await getConnection();
   let userId;
   let programType;
   let programLabel;
@@ -434,7 +434,7 @@ exports.rejectApplication = async (id, reason) => {
   }
 
   try {
-    await db.execute(
+    await execute(
       `INSERT INTO notifications (user_id, title, message, type)
        VALUES (?, ?, ?, ?)`,
       [userId, 'Application Rejected', notifMessage, 'general']
@@ -444,10 +444,10 @@ exports.rejectApplication = async (id, reason) => {
   }
 
   return { applicationId, userId, programType };
-};
+}
 
 // get the latest application status for each program of a beneficiary
-exports.getUserApplicationStatus = async (userId) => {
+export async function getUserApplicationStatus(userId) {
   const query = `
     SELECT
       a.application_id,
@@ -463,7 +463,7 @@ exports.getUserApplicationStatus = async (userId) => {
     ORDER BY a.applied_at DESC
   `;
 
-  const [rows] = await db.execute(query, [userId]);
+  const [rows] = await execute(query, [userId]);
 
   const supportedPrograms = ['tupad', 'spes', 'dilp', 'gip', 'job_seekers'];
   const summary = supportedPrograms.reduce((acc, program) => {
@@ -482,10 +482,10 @@ exports.getUserApplicationStatus = async (userId) => {
     summary,
     submissions: rows
   };
-};
+}
 
 // expoert applications for admin management view
-exports.getApplicationsForExport = async (programType = null, status = null) => {
+export async function getApplicationsForExport(programType = null, status = null) {
   const params = [];
   const conditions = [];
 
@@ -523,48 +523,48 @@ exports.getApplicationsForExport = async (programType = null, status = null) => 
     ORDER BY a.applied_at DESC
   `;
 
-  const [rows] = await db.execute(query, params);
+  const [rows] = await execute(query, params);
   return rows;
-};
+}
 
 // =============================================
 // Daily Wage Settings
 // =============================================
-exports.getDailyWage = async () => {
-  await db.execute(`
+export async function getDailyWage() {
+  await execute(`
     CREATE TABLE IF NOT EXISTS system_settings (
       setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
       setting_value TEXT NOT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-  const [rows] = await db.execute(
+  const [rows] = await execute(
     `SELECT setting_value FROM system_settings WHERE setting_key = 'tupad_daily_wage'`
   );
   return rows.length > 0 ? parseFloat(rows[0].setting_value) || 435 : 435;
-};
+}
 
-exports.updateDailyWage = async (newWage) => {
+export async function updateDailyWage(newWage) {
   const wage = parseFloat(newWage);
   if (isNaN(wage) || wage <= 0) {
     throw new Error('Daily wage must be a positive number');
   }
-  await db.execute(`
+  await execute(`
     CREATE TABLE IF NOT EXISTS system_settings (
       setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
       setting_value TEXT NOT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-  await db.execute(
+  await execute(
     `INSERT INTO system_settings (setting_key, setting_value) VALUES ('tupad_daily_wage', ?)
      ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
     [String(wage)]
   );
   return wage;
-};
+}
 
-exports.getTupadMonthlyReport = async (monthInput) => {
+export async function getTupadMonthlyReport(monthInput) {
   const monthRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
   const selectedMonth = monthRegex.test(String(monthInput || '')) 
     ? String(monthInput)
@@ -576,19 +576,19 @@ exports.getTupadMonthlyReport = async (monthInput) => {
   const endDateExpr = 'LAST_DAY(?)';
 
   // Read daily wage from system_settings (fallback to 435)
-  await db.execute(`
+  await execute(`
     CREATE TABLE IF NOT EXISTS system_settings (
       setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
       setting_value TEXT NOT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-  const [wageRows] = await db.execute(
+  const [wageRows] = await execute(
     `SELECT setting_value FROM system_settings WHERE setting_key = 'tupad_daily_wage'`
   );
   const DAILY_WAGE = wageRows.length > 0 ? parseFloat(wageRows[0].setting_value) || 435 : 435;
 
-  await db.execute(`
+  await execute(`
     CREATE TABLE IF NOT EXISTS attendance_records (
       attendance_id INT PRIMARY KEY AUTO_INCREMENT,
       user_id INT NOT NULL,
@@ -605,7 +605,7 @@ exports.getTupadMonthlyReport = async (monthInput) => {
     )
   `);
 
-  const [applicantGenderRows] = await db.execute(
+  const [applicantGenderRows] = await execute(
     `
       SELECT
         SUM(
@@ -630,7 +630,7 @@ exports.getTupadMonthlyReport = async (monthInput) => {
     [startDate, startDate]
   );
 
-  const [placementsRows] = await db.execute(
+  const [placementsRows] = await execute(
     `
       SELECT COUNT(*) AS placements_assisted
       FROM applications a
@@ -641,7 +641,7 @@ exports.getTupadMonthlyReport = async (monthInput) => {
     [startDate]
   );
 
-  const [beneficiaryProfileRows] = await db.execute(
+  const [beneficiaryProfileRows] = await execute(
     `
       SELECT
         a.application_id,
@@ -661,7 +661,7 @@ exports.getTupadMonthlyReport = async (monthInput) => {
     [startDate]
   );
 
-  const [payrollRows] = await db.execute(
+  const [payrollRows] = await execute(
     `
       SELECT
         ar.user_id,
@@ -725,7 +725,7 @@ exports.getTupadMonthlyReport = async (monthInput) => {
     totals: payrollTotals,
     dailyWage: DAILY_WAGE
   };
-};
+}
 
 // =============================================
 // Payout Profile Management
@@ -735,8 +735,8 @@ exports.getTupadMonthlyReport = async (monthInput) => {
  * Add payout-related fields to beneficiaries table
  * and manage payout readiness
  */
-exports.ensurePayoutFields = async () => {
-    await db.execute(`
+export async function ensurePayoutFields() {
+    await execute(`
         ALTER TABLE beneficiaries 
         ADD COLUMN IF NOT EXISTS gcash_number VARCHAR(20) NULL,
         ADD COLUMN IF NOT EXISTS bank_name VARCHAR(100) NULL,
@@ -745,12 +745,12 @@ exports.ensurePayoutFields = async () => {
         ADD COLUMN IF NOT EXISTS payout_ready TINYINT(1) DEFAULT 0,
         ADD COLUMN IF NOT EXISTS payout_verified_at DATETIME NULL
     `);
-};
+}
 
 /**
  * Update beneficiary payout profile (GCash or Bank details)
  */
-exports.updatePayoutProfile = async (userId, payoutData) => {
+export async function updatePayoutProfile(userId, payoutData) {
     const { gcash_number, bank_name, bank_account_number, bank_account_name, payout_mode } = payoutData;
     
     // Validate payout mode
@@ -777,7 +777,7 @@ exports.updatePayoutProfile = async (userId, payoutData) => {
     const payout_ready = (gcash_number || (bank_name && bank_account_number)) ? 1 : 0;
     const payout_verified_at = payout_ready ? new Date() : null;
 
-    const [result] = await db.execute(
+    const [result] = await execute(
         `UPDATE beneficiaries 
          SET gcash_number = ?, 
              bank_name = ?, 
@@ -798,13 +798,13 @@ exports.updatePayoutProfile = async (userId, payoutData) => {
     );
 
     return result;
-};
+}
 
 /**
  * Get beneficiary payout profile
  */
-exports.getPayoutProfile = async (userId) => {
-    await exports.ensurePayoutFields();
+export async function getPayoutProfile(userId) {
+    await ensurePayoutFields();
     
     const query = `
         SELECT 
@@ -828,15 +828,15 @@ exports.getPayoutProfile = async (userId) => {
         WHERE b.user_id = ?
     `;
     
-    const [rows] = await db.execute(query, [userId]);
+    const [rows] = await execute(query, [userId]);
     return rows[0] || null;
-};
+}
 
 /**
  * Get beneficiaries ready for payout (payout_ready = 1)
  */
-exports.getPayoutReadyBeneficiaries = async (programType = null) => {
-    await exports.ensurePayoutFields();
+export async function getPayoutReadyBeneficiaries(programType = null) {
+    await ensurePayoutFields();
     
     let query = `
         SELECT 
@@ -864,9 +864,9 @@ exports.getPayoutReadyBeneficiaries = async (programType = null) => {
     
     query += ` ORDER BY b.last_name, b.first_name`;
     
-    const [rows] = await db.execute(query, params);
+    const [rows] = await execute(query, params);
     return rows;
-};
+}
 
 // =============================================
 // Admin CRUD operations for beneficiary management
@@ -876,14 +876,14 @@ exports.getPayoutReadyBeneficiaries = async (programType = null) => {
  * Admin adds a beneficiary directly (no user account required).
  * Inserts into beneficiaries table and creates an Approved application record.
  */
-exports.adminAddBeneficiary = async (data) => {
+export async function adminAddBeneficiary(data) {
   const {
     first_name, middle_name, last_name, extension_name,
     birth_date, gender, civil_status, contact_number, address,
     program_type, program_details
   } = data;
 
-  const connection = await db.getConnection();
+  const connection = await getConnection();
   try {
     await connection.beginTransaction();
 
@@ -1017,7 +1017,7 @@ exports.adminAddBeneficiary = async (data) => {
   } finally {
     connection.release();
   }
-};
+}
 
 // =============================================
 // Beneficiary Profiling
@@ -1027,8 +1027,8 @@ exports.adminAddBeneficiary = async (data) => {
  * Get or create a beneficiary profile for the logged-in user.
  * Used so beneficiaries can view/edit their own profiling data.
  */
-exports.getOrCreateBeneficiaryProfile = async (userId) => {
-    const [rows] = await db.query(
+export async function getOrCreateBeneficiaryProfile(userId) {
+    const [rows] = await _query(
         'SELECT * FROM beneficiaries WHERE user_id = ?',
         [userId]
     );
@@ -1038,7 +1038,7 @@ exports.getOrCreateBeneficiaryProfile = async (userId) => {
     }
 
     // Auto-create from users table + most recent approved application
-    const [userRows] = await db.query(
+    const [userRows] = await _query(
         'SELECT user_name, email, phone FROM users WHERE user_id = ?',
         [userId]
     );
@@ -1053,24 +1053,24 @@ exports.getOrCreateBeneficiaryProfile = async (userId) => {
     const firstName = nameParts[0] || '';
     const lastName = nameParts.slice(1).join(' ') || '';
 
-    const [result] = await db.query(
+    const [result] = await _query(
         `INSERT INTO beneficiaries (user_id, first_name, last_name, contact_number, address, is_active)
          VALUES (?, ?, ?, ?, '', 1)`,
         [userId, firstName, lastName, user.phone]
     );
 
-    const [newRows] = await db.query(
+    const [newRows] = await _query(
         'SELECT * FROM beneficiaries WHERE beneficiary_id = ?',
         [result.insertId]
     );
 
     return newRows[0];
-};
+}
 
 /**
  * Update a beneficiary's profiling data
  */
-exports.updateBeneficiaryProfile = async (userId, data) => {
+export async function updateBeneficiaryProfile(userId, data) {
     const {
         first_name, middle_name, last_name, extension_name,
         birth_date, gender, civil_status, contact_number, address
@@ -1095,21 +1095,21 @@ exports.updateBeneficiaryProfile = async (userId, data) => {
 
     values.push(userId);
 
-    const [result] = await db.query(
+    const [result] = await _query(
         `UPDATE beneficiaries SET ${fields.join(', ')} WHERE user_id = ?`,
         values
     );
 
     return result.affectedRows > 0;
-};
+}
 
 /**
  * Check for potential duplicate beneficiaries.
  * Checks by exact name + birth_date match OR same user_id already has a profile.
  */
-exports.checkDuplicateBeneficiary = async (userId, birthDate) => {
+export async function checkDuplicateBeneficiary(userId, birthDate) {
     // First check if this user already has a beneficiary record
-    const [existingByUser] = await db.query(
+    const [existingByUser] = await _query(
         'SELECT beneficiary_id FROM beneficiaries WHERE user_id = ?',
         [userId]
     );
@@ -1123,7 +1123,7 @@ exports.checkDuplicateBeneficiary = async (userId, birthDate) => {
     }
 
     // Parse first/last from users table
-    const [userRows] = await db.query(
+    const [userRows] = await _query(
         'SELECT user_name FROM users WHERE user_id = ?',
         [userId]
     );
@@ -1137,7 +1137,7 @@ exports.checkDuplicateBeneficiary = async (userId, birthDate) => {
     const lastName = nameParts.slice(1).join(' ') || '';
 
     // Check for same name + birth_date in system (different user)
-    const [duplicateCheck] = await db.query(
+    const [duplicateCheck] = await _query(
         `SELECT beneficiary_id, first_name, last_name, birth_date
          FROM beneficiaries
          WHERE first_name = ? AND last_name = ? AND birth_date = ? AND user_id != ?
@@ -1154,14 +1154,14 @@ exports.checkDuplicateBeneficiary = async (userId, birthDate) => {
     }
 
     return { is_duplicate: false, reason: null, beneficiary_id: null };
-};
+}
 
 /**
  * Get a beneficiary's full program history across all programs.
  * Returns each program they've applied to/enrolled in, with status.
  */
-exports.getBeneficiaryProgramHistory = async (userId) => {
-    const [applications] = await db.query(
+export async function getBeneficiaryProgramHistory(userId) {
+    const [applications] = await _query(
         `SELECT
             a.application_id,
             a.program_type,
@@ -1186,18 +1186,104 @@ exports.getBeneficiaryProgramHistory = async (userId) => {
     );
 
     return applications;
-};
+}
+
+/**
+ * Employment history (derived from application detail tables).
+ * This is intentionally read-only and computed from what the beneficiary already submitted.
+ *
+ * Returns newest → oldest entries.
+ */
+export async function getEmploymentHistoryByUserId(userId) {
+  const [rows] = await execute(
+    `
+    SELECT
+      a.application_id,
+      a.program_type,
+      a.status AS application_status,
+      a.applied_at,
+
+      -- TUPAD employment-ish fields
+      td.occupation AS tupad_occupation,
+      td.monthly_income AS tupad_monthly_income,
+
+      -- GIP employment-ish fields
+      gd.employment_status AS gip_employment_status,
+      gd.school AS gip_school,
+      gd.course AS gip_course,
+      gd.year_graduated AS gip_year_graduated,
+      gd.education_level AS gip_education_level,
+      gd.skills AS gip_skills,
+
+      -- Job seeker employment-ish fields
+      jd.employment_status AS jobseeker_employment_status,
+      jd.preferred_work_type,
+      jd.preferred_industry,
+      jd.years_of_experience,
+      jd.technical_skills,
+      jd.expected_salary,
+      jd.availability
+    FROM applications a
+    LEFT JOIN tupad_details td ON td.application_id = a.application_id
+    LEFT JOIN gip_details gd ON gd.application_id = a.application_id
+    LEFT JOIN jobseeker_details jd ON jd.application_id = a.application_id
+    WHERE a.user_id = ?
+    ORDER BY a.applied_at DESC
+    `,
+    [userId]
+  );
+
+  return rows.map((r) => {
+    const employment_status =
+      r.jobseeker_employment_status ||
+      r.gip_employment_status ||
+      null;
+
+    return {
+      application_id: r.application_id,
+      program_type: r.program_type,
+      application_status: r.application_status,
+      applied_at: r.applied_at,
+
+      employment_status,
+
+      tupad: r.program_type === 'tupad' ? {
+        occupation: r.tupad_occupation || null,
+        monthly_income: r.tupad_monthly_income ?? null,
+      } : null,
+
+      gip: r.program_type === 'gip' ? {
+        employment_status: r.gip_employment_status || null,
+        school: r.gip_school || null,
+        course: r.gip_course || null,
+        year_graduated: r.gip_year_graduated || null,
+        education_level: r.gip_education_level || null,
+        skills: r.gip_skills || null,
+      } : null,
+
+      job_seekers: r.program_type === 'job_seekers' ? {
+        employment_status: r.jobseeker_employment_status || null,
+        preferred_work_type: r.preferred_work_type || null,
+        preferred_industry: r.preferred_industry || null,
+        years_of_experience: r.years_of_experience || null,
+        technical_skills: r.technical_skills || null,
+        expected_salary: r.expected_salary || null,
+        availability: r.availability || null,
+      } : null,
+    };
+  });
+}
 
 /**
  * Admin updates beneficiary data.
  */
-exports.adminUpdateBeneficiary = async (beneficiaryId, data) => {
+export async function adminUpdateBeneficiary(beneficiaryId, data) {
   const {
     first_name, middle_name, last_name, extension_name,
     birth_date, gender, civil_status, contact_number, address
   } = data;
 
-  const [result] = await db.execute(
+  const [result] = await execute(
     `UPDATE beneficiaries
      SET first_name = ?, middle_name = ?, last_name = ?, extension_name = ?,
          birth_date = ?, gender = ?, civil_status = ?, contact_number = ?, address = ?
@@ -1217,25 +1303,25 @@ exports.adminUpdateBeneficiary = async (beneficiaryId, data) => {
   );
 
   return result;
-};
+}
 
 /**
  * Admin updates the program assignment for a beneficiary.
  * Updates the existing application's program_type.
  */
-exports.adminUpdateBeneficiaryProgram = async (applicationId, programType) => {
-  const [result] = await db.execute(
+export async function adminUpdateBeneficiaryProgram(applicationId, programType) {
+  const [result] = await execute(
     `UPDATE applications SET program_type = ? WHERE application_id = ?`,
     [programType, applicationId]
   );
   return result;
-};
+}
 
 /**
  * Admin deletes a beneficiary and their associated application records.
  */
-exports.adminDeleteBeneficiary = async (beneficiaryId) => {
-  const connection = await db.getConnection();
+export async function adminDeleteBeneficiary(beneficiaryId) {
+  const connection = await getConnection();
   try {
     await connection.beginTransaction();
 
@@ -1269,12 +1355,12 @@ exports.adminDeleteBeneficiary = async (beneficiaryId) => {
   } finally {
     connection.release();
   }
-};
+}
 
 /**
  * Get a single beneficiary by ID (for edit form).
  */
-exports.getBeneficiaryById = async (beneficiaryId) => {
+export async function getBeneficiaryById(beneficiaryId) {
   const query = `
     SELECT
       b.beneficiary_id,
@@ -1298,14 +1384,14 @@ exports.getBeneficiaryById = async (beneficiaryId) => {
     WHERE b.beneficiary_id = ?
     LIMIT 1
   `;
-  const [rows] = await db.execute(query, [beneficiaryId]);
+  const [rows] = await execute(query, [beneficiaryId]);
   return rows[0] || null;
-};
+}
 
 /**
  * Get all beneficiaries with full details for admin management.
  */
-exports.getAllBeneficiariesForAdmin = async () => {
+export async function getAllBeneficiariesForAdmin() {
   const query = `
     SELECT
       b.beneficiary_id,
@@ -1330,9 +1416,9 @@ exports.getAllBeneficiariesForAdmin = async () => {
     LEFT JOIN users u ON u.user_id = b.user_id
     ORDER BY b.beneficiary_id DESC
   `;
-  const [rows] = await db.execute(query);
+  const [rows] = await execute(query);
   return rows;
-};
+}
 
 // ── Duplicate Detection ──────────────────────────────
 
@@ -1343,7 +1429,7 @@ exports.getAllBeneficiariesForAdmin = async () => {
  *  2. Different user_ids but matching beneficiary (first_name + last_name + birth_date)
  *     applying to the same program
  */
-exports.detectDuplicates = async () => {
+export async function detectDuplicates() {
   // Group 1: Same user applying to the same program more than once
   const sameUserQuery = `
     SELECT
@@ -1406,8 +1492,8 @@ exports.detectDuplicates = async () => {
     ORDER BY b.last_name, b.first_name, a.program_type, a.applied_at
   `;
 
-  const [sameUser] = await db.execute(sameUserQuery);
-  const [samePerson] = await db.execute(samePersonQuery);
+  const [sameUser] = await execute(sameUserQuery);
+  const [samePerson] = await execute(samePersonQuery);
 
   // Merge and deduplicate by application_id
   const seen = new Set();
@@ -1419,12 +1505,12 @@ exports.detectDuplicates = async () => {
     }
   }
   return all;
-};
+}
 
 /**
  * Get all applications that have been manually marked as duplicate.
  */
-exports.getMarkedDuplicates = async () => {
+export async function getMarkedDuplicates() {
   const query = `
     SELECT
       a.application_id,
@@ -1447,65 +1533,84 @@ exports.getMarkedDuplicates = async () => {
     WHERE a.is_duplicate = 1
     ORDER BY a.applied_at DESC
   `;
-  const [rows] = await db.execute(query);
+  const [rows] = await execute(query);
   return rows;
-};
+}
 
 /**
  * Mark an application as duplicate.
  */
-exports.markAsDuplicate = async (applicationId, notes) => {
+export async function markAsDuplicate(applicationId, notes) {
   const query = `
     UPDATE applications
     SET is_duplicate = 1, duplicate_notes = ?
     WHERE application_id = ?
   `;
-  const [result] = await db.execute(query, [notes || null, applicationId]);
+  const [result] = await execute(query, [notes || null, applicationId]);
   return result;
-};
+}
 
 /**
  * Unmark an application (clear duplicate flag).
  */
-exports.unmarkDuplicate = async (applicationId) => {
+export async function unmarkDuplicate(applicationId) {
   const query = `
     UPDATE applications
     SET is_duplicate = 0, duplicate_notes = NULL
     WHERE application_id = ?
   `;
-  const [result] = await db.execute(query, [applicationId]);
+  const [result] = await execute(query, [applicationId]);
   return result;
-};
+}
 
 /**
  * Resolve a duplicate by rejecting it.
  */
-exports.resolveDuplicate = async (applicationId, action) => {
+export async function resolveDuplicate(applicationId, action) {
   if (action === 'reject') {
     const query = `
       UPDATE applications
       SET status = 'Rejected', rejection_reason = 'Duplicate application', is_duplicate = 1
       WHERE application_id = ?
     `;
-    const [result] = await db.execute(query, [applicationId]);
+    const [result] = await execute(query, [applicationId]);
     return result;
   }
   // 'keep' action — just unmark it
-  return exports.unmarkDuplicate(applicationId);
-};
+  return unmarkDuplicate(applicationId);
+}
 
 // ── Enrollment Management ──────────────────────────
 /**
  * Enroll an approved beneficiary into a specific program instance
  */
 // ── ENROLL BENEFICIARY ─────────────────────────────
-exports.enrollBeneficiary = async (applicationId, programId) => {
-  const connection = await db.getConnection();
+export async function enrollBeneficiary(applicationId, programId) {
+  const connection = await getConnection();
 
   try {
+<<<<<<< HEAD
+=======
+    // #region agent log (entry)
+    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f3a7d7' },
+      body: JSON.stringify({
+        sessionId: 'f3a7d7',
+        runId: 'approval-slot-debug',
+        hypothesisId: 'H2',
+        location: 'beneficiary.services.js:enrollBeneficiary:entry',
+        message: 'enrollBeneficiary called',
+        data: { applicationId: Number(applicationId) || null, programId: Number(programId) || null },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+    // #endregion
+
+>>>>>>> 826997eb2a2d518c1746e3b6f423c32c134faaa7
     await connection.beginTransaction();
 
-    // 1. Get application (includes user_id + program_type)
+    // 1. Lock and retrieve application (includes user_id, program_type, status)
     const [appRows] = await connection.execute(
       `SELECT application_id, user_id, status, program_type 
        FROM applications 
@@ -1519,7 +1624,6 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
     }
 
     const application = appRows[0];
-
     if (application.status !== 'Approved') {
       throw new Error('Application must be approved to enroll');
     }
@@ -1528,14 +1632,13 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
     const programType = application.program_type;
 
     // ─────────────────────────────────────────────
-    // RULE 1: Only 1 ACTIVE program per user
+    // RULE 1: Only one ACTIVE program per user
     // ─────────────────────────────────────────────
     const [activeEnrollments] = await connection.execute(
       `SELECT pe.enrollee_id
        FROM program_enrollees pe
        JOIN applications a ON pe.application_id = a.application_id
-       WHERE a.user_id = ?
-       AND pe.current_status = 'Active'`,
+       WHERE a.user_id = ? AND pe.current_status = 'Active'`,
       [userId]
     );
 
@@ -1544,22 +1647,26 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
     }
 
     // ─────────────────────────────────────────────
-    // RULE 2: TUPAD 6-MONTH COOLDOWN
+    // RULE 2: TUPAD cooldown (6 months from *completion* or last enrollment)
     // ─────────────────────────────────────────────
     if (programType === 'tupad') {
-      const [tupadHistory] = await connection.execute(
-        `SELECT pe.enrollment_date
+      // Prefer the end date when the previous TUPAD became Inactive/Completed.
+      // If end_date is not stored, fall back to enrollment_date (less accurate).
+      const [history] = await connection.execute(
+        `SELECT 
+           COALESCE(pe.end_date, pe.enrollment_date) AS reference_date
          FROM program_enrollees pe
          JOIN applications a ON pe.application_id = a.application_id
-         WHERE a.user_id = ?
-         AND a.program_type = 'tupad'
-         ORDER BY pe.enrollment_date DESC
+         WHERE a.user_id = ? 
+           AND a.program_type = 'tupad'
+           AND pe.current_status IN ('Inactive', 'Completed')
+         ORDER BY COALESCE(pe.end_date, pe.enrollment_date) DESC
          LIMIT 1`,
         [userId]
       );
 
-      if (tupadHistory.length > 0) {
-        const lastDate = new Date(tupadHistory[0].enrollment_date);
+      if (history.length > 0) {
+        const lastDate = new Date(history[0].reference_date);
         const now = new Date();
 
         const diffMonths =
@@ -1575,13 +1682,12 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
     }
 
     // ─────────────────────────────────────────────
-    // 2. Check program exists
+    // 2. Check program exists & validate type match
     // ─────────────────────────────────────────────
     const [progRows] = await connection.execute(
-      `SELECT program_id, slots, filled 
+      `SELECT program_id, slots, filled, program_type
        FROM programs 
-       WHERE program_id = ? 
-       FOR UPDATE`,
+       WHERE program_id = ?`,
       [programId]
     );
 
@@ -1589,14 +1695,24 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
       throw new Error('Program not found');
     }
 
+<<<<<<< HEAD
     const { slots, filled } = progRows[0];
+=======
+    const { slots, filled, program_type: progType } = progRows[0];
+>>>>>>> 826997eb2a2d518c1746e3b6f423c32c134faaa7
 
-    if (filled >= slots) {
-      throw new Error('Program has no available slots');
+    // Guard against invalid slot configuration
+    if (slots === null || slots <= 0) {
+      throw new Error('Invalid program slot configuration');
+    }
+
+    // Prevent enrolling a TUPAD application into a 4Ps program (or vice versa)
+    if (progType !== programType) {
+      throw new Error('Program type does not match application type');
     }
 
     // ─────────────────────────────────────────────
-    // 3. Prevent duplicate enrollment in same program
+    // 3. Prevent duplicate enrollment for this application
     // ─────────────────────────────────────────────
     const [existing] = await connection.execute(
       `SELECT enrollee_id 
@@ -1609,8 +1725,19 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
       throw new Error('Already enrolled in this program');
     }
 
+    // Optional: ensure the same application is not used for *any* other enrollment
+    const [anyEnrollment] = await connection.execute(
+      `SELECT enrollee_id 
+       FROM program_enrollees 
+       WHERE application_id = ?`,
+      [applicationId]
+    );
+    if (anyEnrollment.length > 0) {
+      throw new Error('Application already used for an enrollment');
+    }
+
     // ─────────────────────────────────────────────
-    // 4. Insert enrollment
+    // 4. Insert enrollment record
     // ─────────────────────────────────────────────
     const [result] = await connection.execute(
       `INSERT INTO program_enrollees 
@@ -1619,27 +1746,60 @@ exports.enrollBeneficiary = async (applicationId, programId) => {
       [programId, applicationId]
     );
 
+<<<<<<< HEAD
+=======
+    // ─────────────────────────────────────────────
+    // 5. Atomically increment filled counter (race‑condition safe)
+    // ─────────────────────────────────────────────
+    const [updateResult] = await connection.execute(
+      `UPDATE programs 
+       SET filled = filled + 1 
+       WHERE program_id = ? AND filled < slots`,
+      [programId]
+    );
+
+    if (updateResult.affectedRows === 0) {
+      // This can happen if slots were filled between the earlier check and the update.
+      // Rollback the already-inserted enrollee record.
+      throw new Error('Program has no available slots');
+    }
+
+>>>>>>> 826997eb2a2d518c1746e3b6f423c32c134faaa7
     await connection.commit();
+
+    // #region agent log (success)
+    fetch('http://127.0.0.1:7500/ingest/a56af0b5-bb5d-4246-ae1b-60ffc6fa82e8', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f3a7d7' },
+      body: JSON.stringify({
+        sessionId: 'f3a7d7',
+        runId: 'approval-slot-debug',
+        hypothesisId: 'H5',
+        location: 'beneficiary.services.js:enrollBeneficiary:success',
+        message: 'Enrollment successful',
+        data: { enrolleeId: result.insertId, applicationId, programId },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+    // #endregion
 
     return {
       enrolleeId: result.insertId,
       applicationId,
       programId
     };
-
   } catch (err) {
     await connection.rollback();
     throw err;
   } finally {
     connection.release();
   }
-};
-
+}
 /**
  * Get all enrollees for a specific program
  * Used by: beneficiaryController.getProgramEnrollees
  */
-exports.getProgramEnrollees = async (programId) => {
+export async function getProgramEnrollees(programId) {
   const query = `
     SELECT 
       pe.enrollee_id,
@@ -1667,14 +1827,14 @@ exports.getProgramEnrollees = async (programId) => {
     WHERE pe.program_id = ?
     ORDER BY pe.enrollment_date DESC
   `;
-  const [rows] = await db.execute(query, [programId]);
+  const [rows] = await execute(query, [programId]);
   return rows;
-};
+}
 
 /**
  * Get enrollment status for a specific application
  */
-exports.getEnrollmentStatus = async (applicationId) => {
+export async function getEnrollmentStatus(applicationId) {
   const query = `
     SELECT 
       pe.enrollee_id,
@@ -1688,20 +1848,20 @@ exports.getEnrollmentStatus = async (applicationId) => {
     LIMIT 1
   `;
   
-  const [rows] = await db.execute(query, [applicationId]);
+  const [rows] = await execute(query, [applicationId]);
   return rows[0] || null;
-};
+}
 
 /**
  * Update enrollment status
  */
-exports.updateEnrollmentStatus = async (enrolleeId, status) => {
+export async function updateEnrollmentStatus(enrolleeId, status) {
   const validStatuses = ['Active', 'Completed', 'Dropped', 'Suspended'];
   if (!validStatuses.includes(status)) {
     throw new Error('Invalid status. Must be one of: Active, Completed, Dropped, Suspended');
   }
 
-  const [existing] = await db.execute(
+  const [existing] = await execute(
     'SELECT enrollee_id FROM program_enrollees WHERE enrollee_id = ?',
     [enrolleeId]
   );
@@ -1710,11 +1870,11 @@ exports.updateEnrollmentStatus = async (enrolleeId, status) => {
     throw new Error('Enrollment record not found');
   }
 
-  const [result] = await db.execute(
+  const [result] = await execute(
     'UPDATE program_enrollees SET current_status = ?, updated_at = NOW() WHERE enrollee_id = ?',
     [status, enrolleeId]
   );
 
   return result;
-};
+}
 

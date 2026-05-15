@@ -1,7 +1,7 @@
-const db = require('../../config');
+import { execute, getConnection } from '../../config.js';
 
-exports.getAllPrograms = async () => {
-  const [programs] = await db.execute(`
+export async function getAllPrograms() {
+  const [programs] = await execute(`
     SELECT 
       program_id,
       program_name,
@@ -18,10 +18,10 @@ exports.getAllPrograms = async () => {
     ORDER BY program_name
   `);
   return programs;
-};
+}
 
-exports.getProgramStats = async (programId) => {
-  const [stats] = await db.execute(`
+export async function getProgramStats(programId) {
+  const [stats] = await execute(`
     SELECT 
       p.program_name,
       p.slots,
@@ -36,10 +36,10 @@ exports.getProgramStats = async (programId) => {
     GROUP BY p.program_id
   `, [programId]);
   return stats[0] || null;
-};
+}
 
-exports.getReadyPrograms = async () => {
-  const [programs] = await db.execute(`
+export async function getReadyPrograms() {
+  const [programs] = await execute(`
     SELECT 
       program_id,
       program_name,
@@ -56,4 +56,6 @@ exports.getReadyPrograms = async () => {
     ORDER BY start_date ASC
   `);
   return programs;
-};
+}
+
+// tupad services 

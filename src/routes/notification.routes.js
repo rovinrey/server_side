@@ -1,12 +1,19 @@
-const express = require('express');
-const router = express.Router();
-const notificationController = require('../controllers/notification.controller');
-const authMiddleware = require('../middlewares/auth.middleware');
+import { Router } from 'express';
+const router = Router();
+import {
+  handleGetMyNotifications,
+  handleGetUnreadCount,
+  handleMarkAsRead,
+  handleMarkAllAsRead,
+} from '../controllers/notification.controller.js';
+
+import authMiddleware from '../middlewares/auth.middleware.js';
 
 // All notification routes require authentication
-router.get('/', authMiddleware, notificationController.getMyNotifications);
-router.get('/unread-count', authMiddleware, notificationController.getUnreadCount);
-router.patch('/:id/read', authMiddleware, notificationController.markAsRead);
-router.patch('/read-all', authMiddleware, notificationController.markAllAsRead);
+router.get('/', authMiddleware, handleGetMyNotifications);
+router.get('/unread-count', authMiddleware, handleGetUnreadCount);
+router.patch('/:id/read', authMiddleware, handleMarkAsRead);
+router.patch('/read-all', authMiddleware, handleMarkAllAsRead);
 
-module.exports = router;
+
+export default router;

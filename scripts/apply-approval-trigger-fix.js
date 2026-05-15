@@ -3,10 +3,10 @@
  * Run from backend/: node scripts/apply-approval-trigger-fix.js
  */
 require('dotenv').config();
-const mysql = require('mysql2/promise');
+import { createConnection } from 'mysql2/promise';
 
 (async () => {
-  const c = await mysql.createConnection({
+  const c = await createConnection({
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',

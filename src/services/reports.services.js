@@ -1,4 +1,4 @@
-const db = require('../../config');
+import { execute } from '../../config.js';
 
 /**
  * PESO Juban, Sorsogon — Comprehensive Report Service
@@ -20,7 +20,7 @@ const db = require('../../config');
 const toStartDate = (month) => `${month}-01`;
 
 const getDailyWage = async () => {
-    const [rows] = await db.execute(
+    const [rows] = await execute(
         `SELECT setting_value FROM system_settings WHERE setting_key = 'tupad_daily_wage'`
     );
     return rows.length > 0 ? parseFloat(rows[0].setting_value) || 435 : 435;
@@ -46,9 +46,9 @@ const parseQuarter = (quarterStr) => {
 // 1. PROGRAM ACCOMPLISHMENT REPORT
 // ══════════════════════════════════════════════════════
 
-exports.getProgramAccomplishment = async (month = null) => {
+export async function getProgramAccomplishment(month = null) {
     // Overall program stats
-    const [programs] = await db.execute(`
+    const [programs] = await execute(`
         SELECT
             program_id, program_name, location, slots, filled, budget, used,
             status, start_date, end_date
@@ -70,7 +70,7 @@ exports.getProgramAccomplishment = async (month = null) => {
         appParams.push(toStartDate(month), toStartDate(month));
     }
     appQuery += ` GROUP BY program_type, status ORDER BY program_type, status`;
-    const [applicationCounts] = await db.execute(appQuery, appParams);
+    const [applicationCounts] = await execute(appQuery, appParams);
 
     // Gender breakdown by program
     let genderQuery = `
@@ -87,7 +87,7 @@ exports.getProgramAccomplishment = async (month = null) => {
         genderParams.push(toStartDate(month), toStartDate(month));
     }
     genderQuery += ` GROUP BY program_type, gender ORDER BY program_type, gender`;
-    const [genderByProgram] = await db.execute(genderQuery, genderParams);
+    const [genderByProgram] = await execute(genderQuery, genderParams);
 
     // Budget utilization summary
     const budgetSummary = programs.map(p => ({
@@ -128,12 +128,12 @@ exports.getProgramAccomplishment = async (month = null) => {
             program_count: programs.length,
         },
     };
-};
+}
 
 // ══════════════════════════════════════════════════════
 // 2. BENEFICIARY MASTER LIST
 // ══════════════════════════════════════════════════════
-exports.getBeneficiaryMasterList = async (programType = null, status = null) => {
+export async function getBeneficiaryMasterList(programType = null, status = null) {
     let query = `
         SELECT 
             a.application_id,
@@ -168,7 +168,7 @@ exports.getBeneficiaryMasterList = async (programType = null, status = null) => 
 
     query += ` ORDER BY b.last_name, b.first_name LIMIT 100`;
 
-    const [rows] = await db.execute(query, params);
+    const [rows] = await execute(query, params);
 
     const maleCount = rows.filter(r => r.gender && r.gender.toLowerCase() === 'male').length;
     const femaleCount = rows.filter(r => r.gender && r.gender.toLowerCase() === 'female').length;
@@ -185,6 +185,7 @@ exports.getBeneficiaryMasterList = async (programType = null, status = null) => 
         byCivilStatus: {}
     };
 
+<<<<<<< HEAD
 };
 
 // ══════════════════════════════════════════════════════
@@ -250,16 +251,19 @@ exports.getAnnexKData = async (programId) => {
     return program;
 };
 
+=======
+}
+>>>>>>> 826997eb2a2d518c1746e3b6f423c32c134faaa7
 // ══════════════════════════════════════════════════════
 // 3. PAYROLL & DISBURSEMENT SUMMARY
 // ══════════════════════════════════════════════════════
 
-exports.getPayrollSummary = async (month) => {
+export async function getPayrollSummary(month) {
     const startDate = toStartDate(month);
     const dailyWage = await getDailyWage();
 
     // Payroll by program
-    const [byProgram] = await db.execute(`
+    const [byProgram] = await execute(`
         SELECT
             pr.program_type,
             pr.status,
@@ -273,7 +277,7 @@ exports.getPayrollSummary = async (month) => {
     `, [month]);
 
     // Payroll details with names
-    const [records] = await db.execute(`
+    const [records] = await execute(`
         SELECT
             pr.payroll_id,
             pr.user_id,
@@ -296,7 +300,7 @@ exports.getPayrollSummary = async (month) => {
     `, [month]);
 
     // Disbursements for the month
-    const [disbursements] = await db.execute(`
+    const [disbursements] = await execute(`
         SELECT
             d.batch_code,
             d.program_type,
@@ -331,13 +335,13 @@ exports.getPayrollSummary = async (month) => {
                 .reduce((s, d) => s + parseFloat(d.total_amount || 0), 0),
         },
     };
-};
+}
 
 // ══════════════════════════════════════════════════════
 // 4. ATTENDANCE SUMMARY / COMPLIANCE REPORT
 // ══════════════════════════════════════════════════════
 
-exports.getAttendanceSummary = async (month, programType = null) => {
+export async function getAttendanceSummary(month, programType = null) {
     const startDate = toStartDate(month);
 
     let query = `
@@ -368,10 +372,10 @@ exports.getAttendanceSummary = async (month, programType = null) => {
 
     query += ` GROUP BY ar.user_id, full_name, ar.program_type ORDER BY ar.program_type, full_name`;
 
-    const [records] = await db.execute(query, params);
+    const [records] = await execute(query, params);
 
     // Aggregate stats
-    const [statusCounts] = await db.execute(`
+    const [statusCounts] = await execute(`
         SELECT
             COALESCE(LOWER(ar.program_type), 'unknown') AS program_type,
             ar.status,
@@ -402,13 +406,13 @@ exports.getAttendanceSummary = async (month, programType = null) => {
                 : 0,
         },
     };
-};
+}
 
 // ══════════════════════════════════════════════════════
 // 5. DILP PROJECT MONITORING REPORT
 // ══════════════════════════════════════════════════════
 
-exports.getDilpMonitoringReport = async (month = null) => {
+export async function getDilpMonitoringReport(month = null) {
     let query = `
         SELECT
             a.application_id,
@@ -451,7 +455,7 @@ exports.getDilpMonitoringReport = async (month = null) => {
 
     query += ` ORDER BY a.applied_at DESC`;
 
-    const [projects] = await db.execute(query, params);
+    const [projects] = await execute(query, params);
 
     // Summary by category
     const byCategory = {};
@@ -484,13 +488,13 @@ exports.getDilpMonitoringReport = async (month = null) => {
             byStatus: Object.entries(byStatus).map(([k, v]) => ({ status: k, count: v })),
         },
     };
-};
+}
 
 // ══════════════════════════════════════════════════════
 // 6. EMPLOYMENT FACILITATION REPORT (Job Seekers)
 // ══════════════════════════════════════════════════════
 
-exports.getEmploymentFacilitationReport = async (month = null) => {
+export async function getEmploymentFacilitationReport(month = null) {
     let query = `
         SELECT
             a.application_id,
@@ -529,7 +533,7 @@ exports.getEmploymentFacilitationReport = async (month = null) => {
 
     query += ` ORDER BY a.applied_at DESC`;
 
-    const [seekers] = await db.execute(query, params);
+    const [seekers] = await execute(query, params);
 
     // Aggregations
     const byWorkType = {};
@@ -574,13 +578,13 @@ exports.getEmploymentFacilitationReport = async (month = null) => {
             byEmploymentStatus: Object.entries(byEmploymentStatus).map(([k, v]) => ({ status: k, count: v })),
         },
     };
-};
+}
 
 // ══════════════════════════════════════════════════════
 // 7. SPES INTERN REPORT
 // ══════════════════════════════════════════════════════
 
-exports.getSpesReport = async (month = null) => {
+export async function getSpesReport(month = null) {
     let query = `
         SELECT
             a.application_id,
@@ -620,7 +624,7 @@ exports.getSpesReport = async (month = null) => {
 
     query += ` ORDER BY b.last_name, b.first_name`;
 
-    const [interns] = await db.execute(query, params);
+    const [interns] = await execute(query, params);
 
     const male = interns.filter(i => i.gender && i.gender.toLowerCase() === 'male').length;
     const female = interns.filter(i => i.gender && i.gender.toLowerCase() === 'female').length;
@@ -651,13 +655,13 @@ exports.getSpesReport = async (month = null) => {
             byStatus: Object.entries(byStatus).map(([k, v]) => ({ status: k, count: v })),
         },
     };
-};
+}
 
 // ══════════════════════════════════════════════════════
 // 8. GIP INTERN REPORT
 // ══════════════════════════════════════════════════════
 
-exports.getGipReport = async (month = null) => {
+export async function getGipReport(month = null) {
     let query = `
         SELECT
             a.application_id,
@@ -698,7 +702,7 @@ exports.getGipReport = async (month = null) => {
 
     query += ` ORDER BY b.last_name, b.first_name`;
 
-    const [interns] = await db.execute(query, params);
+    const [interns] = await execute(query, params);
 
     const male = interns.filter(i => i.gender && i.gender.toLowerCase() === 'male').length;
     const female = interns.filter(i => i.gender && i.gender.toLowerCase() === 'female').length;
@@ -724,7 +728,7 @@ exports.getGipReport = async (month = null) => {
             byCourse: Object.entries(byCourse).map(([k, v]) => ({ course: k, count: v })),
         },
     };
-};
+}
 
 // ══════════════════════════════════════════════════════
 // 10. ANALYTICS SUMMARY REPORT (NEW)
@@ -734,12 +738,12 @@ let cachedAnalyticsSchema = null;
 
 async function getAnalyticsSchemaFlags() {
     if (cachedAnalyticsSchema) return cachedAnalyticsSchema;
-    const [tables] = await db.execute(`SHOW TABLES LIKE 'barangays'`);
-    const [createdCol] = await db.execute(
+    const [tables] = await execute(`SHOW TABLES LIKE 'barangays'`);
+    const [createdCol] = await execute(
         `SELECT 1 FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'beneficiaries' AND COLUMN_NAME = 'created_at' LIMIT 1`
     );
-    const [barangayIdCol] = await db.execute(
+    const [barangayIdCol] = await execute(
         `SELECT 1 FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'beneficiaries' AND COLUMN_NAME = 'barangay_id' LIMIT 1`
     );
@@ -801,7 +805,7 @@ function buildIntervalClause(range, dateExpr) {
  * Joins beneficiaries → applications (program_type); optional barangays; program_enrollees → programs.
  * Date filter uses COALESCE(beneficiary.created_at, application.applied_at) when created_at exists.
  */
-exports.getSummaryReport = async ({ program, timeRange, sortOrder }) => {
+export async function getSummaryReport({ program, timeRange, sortOrder }) {
     const flags = await getAnalyticsSchemaFlags();
     const range = normalizeTimeRange(timeRange);
     const sort = normalizeSortOrder(sortOrder);
@@ -854,9 +858,9 @@ exports.getSummaryReport = async ({ program, timeRange, sortOrder }) => {
         ${orderClause}
     `;
 
-    const [rows] = await db.execute(sql, programParams);
+    const [rows] = await execute(sql, programParams);
     return processResults(rows, sort);
-};
+}
 
 // Helper function to process results and calculate totals
 const processResults = (rows, sortOrder) => {
@@ -899,12 +903,12 @@ const processResults = (rows, sortOrder) => {
 // 9. QUARTERLY / ANNUAL CONSOLIDATED REPORT
 // ══════════════════════════════════════════════════════
 
-exports.getConsolidatedReport = async (startMonth, endMonth) => {
+export async function getConsolidatedReport(startMonth, endMonth) {
     const startDate = toStartDate(startMonth);
     const endDate = `${endMonth}-01`;
 
     // Applications filed in period
-    const [applications] = await db.execute(`
+    const [applications] = await execute(`
         SELECT
             LOWER(a.program_type) AS program_type,
             a.status,
@@ -919,7 +923,7 @@ exports.getConsolidatedReport = async (startMonth, endMonth) => {
     `, [startDate, endDate]);
 
     // Payroll summary for each month in range
-    const [payrollMonthly] = await db.execute(`
+    const [payrollMonthly] = await execute(`
         SELECT
             pr.payroll_month,
             pr.program_type,
@@ -941,7 +945,7 @@ exports.getConsolidatedReport = async (startMonth, endMonth) => {
     }, { total_payout: 0, total_days: 0, total_beneficiaries: 0 });
 
     // Disbursement totals in range
-    const [disbursements] = await db.execute(`
+    const [disbursements] = await execute(`
         SELECT
             d.status,
             COUNT(*) AS batch_count,
@@ -953,7 +957,7 @@ exports.getConsolidatedReport = async (startMonth, endMonth) => {
     `, [startMonth, endMonth]);
 
     // Attendance summary for range
-    const [attendance] = await db.execute(`
+    const [attendance] = await execute(`
         SELECT
             ar.status,
             COUNT(*) AS count
@@ -963,7 +967,7 @@ exports.getConsolidatedReport = async (startMonth, endMonth) => {
     `, [startDate, endDate]);
 
     // Budget utilization — current snapshot
-    const [programBudgets] = await db.execute(`
+    const [programBudgets] = await execute(`
         SELECT
             program_name,
             budget,
@@ -992,4 +996,4 @@ exports.getConsolidatedReport = async (startMonth, endMonth) => {
                 : 0,
         })),
     };
-};
+}

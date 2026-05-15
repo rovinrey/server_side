@@ -1,5 +1,5 @@
-const db = require('../../config');
-const { safeTrim, safeInt, safeFloat } = require('./common.validators');
+import common from './common.validators.js';
+const { safeTrim, safeInt, safeFloat } = common;
 
 const VALID_STATUSES = ['ongoing', 'active', 'pending', 'completed', 'cancelled'];
 
@@ -7,7 +7,7 @@ const VALID_STATUSES = ['ongoing', 'active', 'pending', 'completed', 'cancelled'
  * Validate program create/update data.
  * Ensures budget, slots, dates are sane before writing to DB.
  */
-exports.validateProgram = (req, res, next) => {
+export function validateProgram(req, res, next) {
     const { name, location, slots, budget, status, start_date, end_date } = req.body;
 
     if (!safeTrim(name) || safeTrim(name).length < 2) {
@@ -62,13 +62,18 @@ exports.validateProgram = (req, res, next) => {
     }
 
     next();
-};
+}
 
 /**
  * Validate budget update — ensures `used` never exceeds new budget.
  * Attach to PUT /:program_id when budget changes.
  */
+<<<<<<< HEAD
 exports.validateBudgetUpdate = async (req, res, next) => {
+=======
+export async function validateBudgetUpdate(req, res, next) {
+    const db = require('../../db');
+>>>>>>> 826997eb2a2d518c1746e3b6f423c32c134faaa7
     const { program_id } = req.params;
     const { budget } = req.body;
 
@@ -96,4 +101,4 @@ exports.validateBudgetUpdate = async (req, res, next) => {
     }
 
     next();
-};
+}

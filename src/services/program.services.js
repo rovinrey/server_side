@@ -1,23 +1,23 @@
-const db = require('../../config');
+import { execute } from '../../config.js';
 
 // create new program
-exports.createProgram = async (program) => {
+export async function createProgram(program) {
   const { name, location, slots, budget, status } = program;
   const query = `
     INSERT INTO programs (program_name, location, slots, budget, status, filled, used)
     VALUES (?, ?, ?, ?, ?, 0, 0)
   `;
-  const [result] = await db.execute(query, [name, location, slots, budget, status]);
+  const [result] = await execute(query, [name, location, slots, budget, status]);
   return result;
-};
+}
 
-exports.getAllPrograms = async () => {
+export async function getAllPrograms() {
   const query = 'SELECT * FROM programs ORDER BY program_id DESC';
-  const [rows] = await db.execute(query);
+  const [rows] = await execute(query);
   return rows;
-};
+}
 
-exports.getProgramsWithBeneficiaries = async () => {
+export async function getProgramsWithBeneficiaries() {
   const query = `
     SELECT 
         p.program_id,
@@ -34,29 +34,29 @@ exports.getProgramsWithBeneficiaries = async () => {
     GROUP BY p.program_id, p.program_name, p.location, p.slots, p.filled, p.budget, p.used, p.status
     ORDER BY p.program_id DESC
   `;
-  const [rows] = await db.execute(query);
+  const [rows] = await execute(query);
   return rows;
-};
+}
 
-exports.getProgramById = async (program_id) => {
+export async function getProgramById(program_id) {
   const query = 'SELECT * FROM programs WHERE program_id = ?';
-  const [rows] = await db.execute(query, [program_id]);
+  const [rows] = await execute(query, [program_id]);
   return rows;
-};
+}
 
-exports.updateProgram = async (program_id, updated) => {
+export async function updateProgram(program_id, updated) {
   const { name, location, slots, budget, status } = updated;
   const query = `
     UPDATE programs 
     SET program_name = ?, location = ?, slots = ?, budget = ?, status = ?
     WHERE program_id = ?
   `;
-  const [result] = await db.execute(query, [name, location, slots, budget, status, program_id]);
+  const [result] = await execute(query, [name, location, slots, budget, status, program_id]);
   return result;
-};
+}
 
-exports.deleteProgram = async (program_id) => {
+export async function deleteProgram(program_id) {
   const query = 'DELETE FROM programs WHERE program_id = ?';
-  const [result] = await db.execute(query, [program_id]);
+  const [result] = await execute(query, [program_id]);
   return result;
-};
+}

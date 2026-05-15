@@ -1,14 +1,14 @@
-const db = require('../../config');
+import { getConnection, execute } from '../../config.js';
 
 // Apply to SPES – creates a new application or updates the existing one.
 // Supports individual per-form submissions (upsert pattern).
-exports.applyToSpes = async (data) => {
+export async function applyToSpes(data) {
     const userId = data.user_id || data.userId;
     if (!userId) {
         throw new Error('User ID is required for SPES application');
     }
 
-    const connection = await db.getConnection();
+    const connection = await getConnection();
 
     try {
         await connection.beginTransaction();
@@ -148,22 +148,22 @@ exports.applyToSpes = async (data) => {
     } finally {
         connection.release();
     }
-};
+}
 
 // Get SPES details by application_id.
-exports.getSpesDetails = async (applicationId) => {
+export async function getSpesDetails(applicationId) {
     try {
         const query = `SELECT * FROM spes_details WHERE application_id = ?`;
-        const [rows] = await db.execute(query, [applicationId]);
+        const [rows] = await execute(query, [applicationId]);
         return rows[0] || null;
     } catch (error) {
         console.error('Error fetching SPES details:', error.message);
         throw error;
     }
-};
+}
 
 // Update SPES details.
-exports.updateSpesDetails = async (detailId, data) => {
+export async function updateSpesDetails(detailId, data) {
     try {
         const query = `
             UPDATE spes_details SET
@@ -207,34 +207,34 @@ exports.updateSpesDetails = async (detailId, data) => {
             detailId
         ];
 
-        const [result] = await db.execute(query, values);
+        const [result] = await execute(query, values);
         return { success: true, affectedRows: result.affectedRows };
     } catch (error) {
         console.error('Error updating SPES details:', error.message);
         throw error;
     }
-};
+}
 
 // Approve a SPES application in centralized applications table.
-exports.approveApplication = async (applicationId) => {
+export async function approveApplication(applicationId) {
     const query = `
         UPDATE applications
         SET status = 'Approved', approval_date = NOW(), rejection_reason = NULL, updated_at = NOW()
         WHERE application_id = ? AND program_type = 'spes'
     `;
 
-    const [result] = await db.execute(query, [applicationId]);
+    const [result] = await execute(query, [applicationId]);
     return { success: true, affectedRows: result.affectedRows };
-};
+}
 
 // Reject a SPES application in centralized applications table.
-exports.rejectApplication = async (applicationId, reason) => {
+export async function rejectApplication(applicationId, reason) {
     const query = `
         UPDATE applications
         SET status = 'Rejected', rejection_reason = ?, updated_at = NOW()
         WHERE application_id = ? AND program_type = 'spes'
     `;
 
-    const [result] = await db.execute(query, [reason || null, applicationId]);
+    const [result] = await execute(query, [reason || null, applicationId]);
     return { success: true, affectedRows: result.affectedRows };
-};
+}

@@ -1,13 +1,13 @@
-const db = require('../../config');
+import { getConnection } from '../../config.js';
 
 /**
  * Apply to Job Seekers program — creates central application + jobseeker_details + beneficiary record.
  */
-exports.applyToJobSeekers = async (data) => {
+export async function applyToJobSeekers(data) {
     const userId = data.user_id;
     if (!userId) throw new Error('User ID is required for Job Seekers application');
 
-    const connection = await db.getConnection();
+    const connection = await getConnection();
 
     try {
         await connection.beginTransaction();
@@ -83,4 +83,4 @@ exports.applyToJobSeekers = async (data) => {
     } finally {
         connection.release();
     }
-};
+}

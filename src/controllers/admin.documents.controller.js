@@ -1,7 +1,7 @@
-const adminDocsService = require('../services/admin.documents.services');
-const path = require('path');
-const fs = require('fs');
-const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, HeadingLevel } = require('docx');
+import { getAllDocuments, getAllSpesDocuments, getUserDocumentsForExport, getDocumentById, deleteDocument, replaceDocument, getSpesDocumentPath, deleteSpesDocument, replaceSpesDocument, getApplicationDocuments, verifyDocument, rejectDocument } from '../services/admin.documents.services.js';
+import { basename, extname } from 'path';
+import { existsSync, createReadStream } from 'fs';
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, HeadingLevel } from 'docx';
 
 const VALID_PROGRAMS = ['tupad', 'spes', 'dilp', 'gip', 'job_seekers'];
 
@@ -39,7 +39,7 @@ const formatLabel = (key) =>
  * Returns all submitted documents across all users.
  * Query params: ?programType=tupad&userId=5
  */
-exports.getAllDocuments = async (req, res) => {
+export async function handleGetAllDocuments(req, res) {
     try {
         const { programType, userId } = req.query;
 
@@ -47,7 +47,7 @@ exports.getAllDocuments = async (req, res) => {
             return res.status(400).json({ message: 'Invalid program type' });
         }
 
-        const docs = await adminDocsService.getAllDocuments({
+        const docs = await getAllDocuments({
             programType: programType || null,
             userId: userId ? parseInt(userId, 10) : null,
         });
@@ -70,7 +70,7 @@ exports.getAllDocuments = async (req, res) => {
             verified_at: doc.verified_at || null,
             verified_by_name: doc.verified_by_name || null,
             is_verified: doc.status === 'verified' ? 1 : 0,
-            url: `/uploads/beneficiary-documents/${path.basename(doc.file_path)}`,
+            url: `/uploads/beneficiary-documents/${basename(doc.file_path)}`,
         }));
 
         return res.status(200).json({ documents: mapped });
@@ -78,16 +78,16 @@ exports.getAllDocuments = async (req, res) => {
         console.error('Error fetching admin documents:', error.message);
         return res.status(500).json({ message: 'Error fetching documents' });
     }
-};
+}
 
 /**
  * GET /api/admin/documents/spes
  * Returns all SPES application documents across all users.
  */
-exports.getAllSpesDocuments = async (req, res) => {
+export async function handleGetAllSpesDocuments(req, res) {
     try {
         const { userId } = req.query;
-        const docs = await adminDocsService.getAllSpesDocuments({
+        const docs = await getAllSpesDocuments({
             userId: userId ? parseInt(userId, 10) : null,
         });
 
@@ -107,7 +107,7 @@ exports.getAllSpesDocuments = async (req, res) => {
             const documents = {};
             Object.entries(SPES_FIELDS).forEach(([col, label]) => {
                 documents[label] = row[col]
-                    ? `/uploads/spes-documents/${path.basename(row[col])}`
+                    ? `/uploads/spes-documents/${basename(row[col])}`
                     : null;
             });
 
@@ -128,21 +128,21 @@ exports.getAllSpesDocuments = async (req, res) => {
         console.error('Error fetching admin SPES documents:', error.message);
         return res.status(500).json({ message: 'Error fetching SPES documents' });
     }
-};
+}
 
 /**
  * GET /api/admin/documents/export-word/:userId
  * Generates and downloads a .docx file summarizing a user's submitted documents.
  * The admin can then edit the Word file before printing/submitting to DOLE.
  */
-exports.exportDocumentsToWord = async (req, res) => {
+export async function handleExportDocumentsToWord(req, res) {
     const userId = parseInt(req.params.userId, 10);
     if (isNaN(userId)) {
         return res.status(400).json({ message: 'Invalid user ID' });
     }
 
     try {
-        const docs = await adminDocsService.getUserDocumentsForExport(userId);
+        const docs = await getUserDocumentsForExport(userId);
 
         if (docs.length === 0) {
             return res.status(404).json({ message: 'No documents found for this user' });
@@ -406,50 +406,50 @@ exports.exportDocumentsToWord = async (req, res) => {
         console.error('Error exporting documents to Word:', error.message);
         return res.status(500).json({ message: 'Error generating Word document' });
     }
-};
+}
 
 /**
  * GET /api/admin/documents/view/:documentId
  * Serve a specific document file for admin viewing.
  */
-exports.viewDocument = async (req, res) => {
+export async function handleViewDocument(req, res) {
     const documentId = parseInt(req.params.documentId, 10);
     if (isNaN(documentId)) {
         return res.status(400).json({ message: 'Invalid document ID' });
     }
 
     try {
-        const doc = await adminDocsService.getDocumentById(documentId);
+        const doc = await getDocumentById(documentId);
         if (!doc) {
             return res.status(404).json({ message: 'Document not found' });
         }
 
         const filePath = doc.file_path;
-        if (!filePath || !fs.existsSync(filePath)) {
+        if (!filePath || !existsSync(filePath)) {
             return res.status(404).json({ message: 'File not found on server' });
         }
 
         res.setHeader('Content-Type', doc.mime_type || 'application/octet-stream');
         res.setHeader('Content-Disposition', `inline; filename="${doc.original_name}"`);
-        fs.createReadStream(filePath).pipe(res);
+        createReadStream(filePath).pipe(res);
     } catch (error) {
         console.error('Error viewing document:', error.message);
         return res.status(500).json({ message: 'Error viewing document' });
     }
-};
+}
 
 /**
  * DELETE /api/admin/documents/:documentId
  * Delete a generic beneficiary document.
  */
-exports.deleteDocument = async (req, res) => {
+export async function handleDeleteDocument(req, res) {
     const documentId = parseInt(req.params.documentId, 10);
     if (isNaN(documentId)) {
         return res.status(400).json({ message: 'Invalid document ID' });
     }
 
     try {
-        const result = await adminDocsService.deleteDocument(documentId);
+        const result = await deleteDocument(documentId);
         if (!result) {
             return res.status(404).json({ message: 'Document not found' });
         }
@@ -458,13 +458,13 @@ exports.deleteDocument = async (req, res) => {
         console.error('Error deleting document:', error.message);
         return res.status(500).json({ message: 'Error deleting document' });
     }
-};
+}
 
 /**
  * PUT /api/admin/documents/:documentId
  * Replace a generic beneficiary document file.
  */
-exports.replaceDocument = async (req, res) => {
+export async function handleReplaceDocument(req, res) {
     const documentId = parseInt(req.params.documentId, 10);
     if (isNaN(documentId)) {
         return res.status(400).json({ message: 'Invalid document ID' });
@@ -475,7 +475,7 @@ exports.replaceDocument = async (req, res) => {
     }
 
     try {
-        const result = await adminDocsService.replaceDocument(documentId, req.file);
+        const result = await replaceDocument(documentId, req.file);
         if (!result) {
             return res.status(404).json({ message: 'Document not found' });
         }
@@ -484,13 +484,13 @@ exports.replaceDocument = async (req, res) => {
         console.error('Error replacing document:', error.message);
         return res.status(500).json({ message: 'Error replacing document' });
     }
-};
+}
 
 /**
  * GET /api/admin/documents/spes/view/:applicationId/:fieldId
  * Serve a specific SPES document file.
  */
-exports.viewSpesDocument = async (req, res) => {
+export async function handleViewSpesDocument(req, res) {
     const applicationId = parseInt(req.params.applicationId, 10);
     const { fieldId } = req.params;
 
@@ -499,29 +499,29 @@ exports.viewSpesDocument = async (req, res) => {
     }
 
     try {
-        const filePath = await adminDocsService.getSpesDocumentPath(applicationId, fieldId);
-        if (!filePath || !fs.existsSync(filePath)) {
+        const filePath = await getSpesDocumentPath(applicationId, fieldId);
+        if (!filePath || !existsSync(filePath)) {
             return res.status(404).json({ message: 'Document not found' });
         }
 
-        const ext = path.extname(filePath).toLowerCase();
+        const ext = extname(filePath).toLowerCase();
         const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.pdf': 'application/pdf' };
         const mime = mimeMap[ext] || 'application/octet-stream';
 
         res.setHeader('Content-Type', mime);
-        res.setHeader('Content-Disposition', `inline; filename="${path.basename(filePath)}"`);
-        fs.createReadStream(filePath).pipe(res);
+        res.setHeader('Content-Disposition', `inline; filename="${basename(filePath)}"`);
+        createReadStream(filePath).pipe(res);
     } catch (error) {
         console.error('Error viewing SPES document:', error.message);
         return res.status(500).json({ message: 'Error viewing document' });
     }
-};
+}
 
 /**
  * DELETE /api/admin/documents/spes/:applicationId/:fieldId
  * Delete a specific SPES document.
  */
-exports.deleteSpesDocument = async (req, res) => {
+export async function handleDeleteSpesDocument(req, res) {
     const applicationId = parseInt(req.params.applicationId, 10);
     const { fieldId } = req.params;
 
@@ -530,7 +530,7 @@ exports.deleteSpesDocument = async (req, res) => {
     }
 
     try {
-        const result = await adminDocsService.deleteSpesDocument(applicationId, fieldId);
+        const result = await deleteSpesDocument(applicationId, fieldId);
         if (!result) {
             return res.status(404).json({ message: 'Document not found or invalid field' });
         }
@@ -539,13 +539,13 @@ exports.deleteSpesDocument = async (req, res) => {
         console.error('Error deleting SPES document:', error.message);
         return res.status(500).json({ message: 'Error deleting SPES document' });
     }
-};
+}
 
 /**
  * PUT /api/admin/documents/spes/:applicationId/:fieldId
  * Replace a specific SPES document file.
  */
-exports.replaceSpesDocument = async (req, res) => {
+export async function handleReplaceSpesDocument(req, res) {
     const applicationId = parseInt(req.params.applicationId, 10);
     const { fieldId } = req.params;
 
@@ -558,7 +558,7 @@ exports.replaceSpesDocument = async (req, res) => {
     }
 
     try {
-        const result = await adminDocsService.replaceSpesDocument(applicationId, fieldId, req.file);
+        const result = await replaceSpesDocument(applicationId, fieldId, req.file);
         if (!result) {
             return res.status(404).json({ message: 'Document not found or invalid field' });
         }
@@ -567,20 +567,20 @@ exports.replaceSpesDocument = async (req, res) => {
         console.error('Error replacing SPES document:', error.message);
         return res.status(500).json({ message: 'Error replacing SPES document' });
     }
-};
+}
 
 /**
  * GET /api/admin/documents/application/:applicationId
  * Returns all documents uploaded by a beneficiary for a specific application
  */
-exports.getApplicationDocuments = async (req, res) => {
+export async function handleGetApplicationDocuments(req, res) {
     const applicationId = parseInt(req.params.applicationId, 10);
     if (isNaN(applicationId)) {
         return res.status(400).json({ message: 'Invalid application ID' });
     }
 
     try {
-        const docs = await adminDocsService.getApplicationDocuments(applicationId);
+        const docs = await getApplicationDocuments(applicationId);
         
         const mapped = docs.map((doc) => ({
             document_id: doc.document_id,
@@ -597,7 +597,7 @@ exports.getApplicationDocuments = async (req, res) => {
             verified_by: doc.verified_by,
             verified_at: doc.verified_at,
             verified_by_name: doc.verified_by_name,
-            url: `/uploads/beneficiary-documents/${path.basename(doc.file_path)}`,
+            url: `/uploads/beneficiary-documents/${basename(doc.file_path)}`,
         }));
 
         return res.status(200).json({ documents: mapped });
@@ -605,13 +605,13 @@ exports.getApplicationDocuments = async (req, res) => {
         console.error('Error fetching application documents:', error.message);
         return res.status(500).json({ message: 'Error fetching application documents' });
     }
-};
+}
 
 /**
  * PUT /api/admin/documents/:documentId/verify
  * Mark a document as verified by the admin
  */
-exports.verifyDocument = async (req, res) => {
+export async function handleVerifyDocument(req, res) {
     const documentId = parseInt(req.params.documentId, 10);
     const adminId = req.user?.id;
 
@@ -624,7 +624,7 @@ exports.verifyDocument = async (req, res) => {
     }
 
     try {
-        const result = await adminDocsService.verifyDocument(documentId, adminId);
+        const result = await verifyDocument(documentId, adminId);
         if (!result) {
             return res.status(404).json({ message: 'Document not found' });
         }
@@ -636,13 +636,13 @@ exports.verifyDocument = async (req, res) => {
         console.error('Error verifying document:', error.message);
         return res.status(500).json({ message: 'Error verifying document' });
     }
-};
+}
 
 /**
  * PUT /api/admin/documents/:documentId/reject
  * Mark a document as not verified (reject verification)
  */
-exports.rejectDocument = async (req, res) => {
+export async function handleRejectDocument(req, res) {
     const documentId = parseInt(req.params.documentId, 10);
 
     if (isNaN(documentId)) {
@@ -650,7 +650,7 @@ exports.rejectDocument = async (req, res) => {
     }
 
     try {
-        const result = await adminDocsService.rejectDocument(documentId);
+        const result = await rejectDocument(documentId);
         if (!result) {
             return res.status(404).json({ message: 'Document not found' });
         }
@@ -662,4 +662,4 @@ exports.rejectDocument = async (req, res) => {
         console.error('Error rejecting document:', error.message);
         return res.status(500).json({ message: 'Error rejecting document' });
     }
-};
+}

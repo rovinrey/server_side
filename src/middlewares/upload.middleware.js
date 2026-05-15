@@ -1,21 +1,22 @@
-const multer = require('multer');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
+import multer, { diskStorage } from 'multer';
+import { join, extname, dirname } from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import { existsSync, mkdirSync } from 'fs';
+import { fileURLToPath } from 'url';
 
-const UPLOAD_DIR = path.join(__dirname, '../../uploads/spes-documents');
+const UPLOAD_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../uploads/spes-documents');
 
 // Ensure the upload directory exists
-if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!existsSync(UPLOAD_DIR)) {
+    mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-const storage = multer.diskStorage({
+const storage = diskStorage({
     destination: (_req, _file, cb) => {
         cb(null, UPLOAD_DIR);
     },
     filename: (_req, file, cb) => {
-        const ext = path.extname(file.originalname).toLowerCase();
+        const ext = extname(file.originalname).toLowerCase();
         cb(null, `${uuidv4()}${ext}`);
     },
 });
@@ -40,4 +41,4 @@ const upload = multer({
     limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
 });
 
-module.exports = upload;
+export default upload;
